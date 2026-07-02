@@ -189,6 +189,15 @@
         background: #fff; border: 1px solid var(--border); box-shadow: var(--shadow);
         padding: 8px 15px; border-radius: 999px; font-size: 12.5px; color: var(--muted);
       }
+      .tooltip {
+        position: absolute; pointer-events: none; z-index: 20; display: none;
+        background: #0f172a; color: #fff; border-radius: 9px; padding: 8px 11px;
+        font-size: 12px; line-height: 1.5; box-shadow: 0 6px 20px rgba(15,23,42,0.3);
+        white-space: nowrap; transform: translate(-50%, calc(-100% - 12px));
+      }
+      .tooltip .tt-row { display: flex; align-items: center; gap: 7px; }
+      .tooltip .tt-k { color: #94a3b8; width: 58px; }
+      .tooltip .tt-hr { color: #fb7185; font-weight: 700; }
 
       /* Course panel */
       .game-panel {
@@ -293,12 +302,14 @@
           <div class="stat"><div class="k">Position (m)</div><div class="v" id="sPos">—</div></div>
           <div class="stat"><div class="k">Points</div><div class="v" id="sCount">0</div></div>
           <div class="stat"><div class="k">Distance</div><div class="v" id="sDist">0 <small>m</small></div></div>
+          <div class="stat"><div class="k">Time</div><div class="v" id="sTime">—</div></div>
           <div class="stat"><div class="k">Progress</div><div class="v" id="sProg">—</div></div>
           <div class="stat"><div class="k">Heart rate</div><div class="v" id="sHr">— <small>bpm</small></div></div>
         </div>
       </div>
       <div class="canvas-wrap">
         <canvas id="cv"></canvas>
+        <div class="tooltip" id="tooltip"></div>
         <div class="hint" id="hint">Waiting for the lens to place a board…</div>
         <div class="game-panel hidden" id="gamePanel">
           <div class="gp-head">
@@ -344,6 +355,7 @@
       let filterMode = "all"; // 'all' | 'unassigned' | <patientId>
       let patientQuery = "";
       let sessionQuery = "";
+      let hoverData = []; // per-trajectory-point screen coords + hr/time/distance (for tooltip)
 
       // ---------- Helpers ----------
       const AVATAR_COLORS = ["#2563eb", "#0d9488", "#7c3aed", "#db2777", "#ea580c", "#0891b2", "#4f46e5", "#059669"];
@@ -580,6 +592,20 @@
           }
           renderSessions();
         });
+        es.addEventListener("start", (e) => {
+          const { sessionId, startedAt } = JSON.parse(e.data);
+          const sum = sessions.find((s) => s.id === sessionId);
+          if (sum) sum.startedAt = startedAt;
+          if (current && current.id === sessionId) { current.startedAt = startedAt; updateStats(); draw(); }
+          renderSessions();
+        });
+        es.addEventListener("end", (e) => {
+          const { sessionId, endedAt } = JSON.parse(e.data);
+          const sum = sessions.find((s) => s.id === sessionId);
+          if (sum) sum.endedAt = endedAt;
+          if (current && current.id === sessionId) { current.endedAt = endedAt; updateStats(); draw(); }
+          renderSessions();
+        });
         es.addEventListener("deleted", (e) => {
           const { sessionId } = JSON.parse(e.data);
           sessions = sessions.filter((s) => s.id !== sessionId);
@@ -594,18 +620,34 @@
 
       // ---------- Stats ----------
       function pathDistance(pts) { let d = 0; for (let i = 1; i < pts.length; i++) d += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); return d; }
+      // Trajectory = points recorded once the run started (board entered), until it ended.
+      function trajectoryPoints() {
+        if (!current || !current.startedAt) return [];
+        const end = current.endedAt || Infinity;
+        return current.points.filter((p) => p.t >= current.startedAt && p.t <= end);
+      }
+      function runElapsedMs() {
+        if (!current || !current.startedAt) return 0;
+        return (current.endedAt || Date.now()) - current.startedAt;
+      }
+      function updateTimerDisplay() {
+        el("sTime").textContent = current && current.startedAt ? fmtMs(runElapsedMs()) : "—";
+      }
       function updateStats() {
         if (!current) {
           el("sName").textContent = "No session selected"; el("sPos").textContent = "—";
           el("sCount").textContent = "0"; el("sDist").innerHTML = '0 <small>m</small>'; el("sProg").textContent = "—";
+          el("sTime").textContent = "—"; el("sHr").innerHTML = '— <small>bpm</small>';
           return;
         }
         const n = sessions.findIndex((s) => s.id === current.id);
         el("sName").textContent = n >= 0 ? "Session " + (sessions.length - n) : "Session";
         const pts = current.points;
+        const traj = trajectoryPoints();
         el("sCount").textContent = pts.length;
-        el("sDist").innerHTML = pathDistance(pts).toFixed(1) + ' <small>m</small>';
+        el("sDist").innerHTML = pathDistance(traj).toFixed(1) + ' <small>m</small>';
         el("sPos").textContent = pts.length ? `${pts[pts.length - 1].x.toFixed(2)}, ${pts[pts.length - 1].y.toFixed(2)}` : "—";
+        updateTimerDisplay();
         const total = (current.waypoints && current.waypoints.length) || 0;
         const reached = (current.events && current.events.length) || 0;
         el("sProg").textContent = total ? `${reached} / ${total}` : "—";
@@ -713,37 +755,48 @@
           ctx.fillStyle = col; ctx.fillText(String(w.n), cx, cy + DPR);
         }
 
-        const pts = current.points; if (!pts.length) return;
+        const allPts = current.points;
+        const traj = trajectoryPoints();
+        hoverData = [];
 
-        // path
-        ctx.lineWidth = 3 * DPR; ctx.lineJoin = "round"; ctx.lineCap = "round";
-        const grad = ctx.createLinearGradient(0, 0, W, H);
-        grad.addColorStop(0, "#2563eb"); grad.addColorStop(1, "#0d9488");
-        ctx.strokeStyle = grad; ctx.beginPath(); ctx.moveTo(v.sx(pts[0].x), v.sy(pts[0].y));
-        for (let i = 1; i < pts.length; i++) ctx.lineTo(v.sx(pts[i].x), v.sy(pts[i].y));
-        ctx.stroke();
+        // trajectory path (only the part recorded after the run started)
+        if (traj.length) {
+          ctx.lineWidth = 3 * DPR; ctx.lineJoin = "round"; ctx.lineCap = "round";
+          const grad = ctx.createLinearGradient(0, 0, W, H);
+          grad.addColorStop(0, "#2563eb"); grad.addColorStop(1, "#0d9488");
+          ctx.strokeStyle = grad; ctx.beginPath(); ctx.moveTo(v.sx(traj[0].x), v.sy(traj[0].y));
+          for (let i = 1; i < traj.length; i++) ctx.lineTo(v.sx(traj[i].x), v.sy(traj[i].y));
+          ctx.stroke();
 
-        // start
-        ctx.fillStyle = "#0d9488"; ctx.beginPath(); ctx.arc(v.sx(pts[0].x), v.sy(pts[0].y), 5 * DPR, 0, 7); ctx.fill();
+          // start marker
+          ctx.fillStyle = "#0d9488"; ctx.beginPath(); ctx.arc(v.sx(traj[0].x), v.sy(traj[0].y), 5 * DPR, 0, 7); ctx.fill();
 
-        // current
-        const last = pts[pts.length - 1], live = isLiveSession({ lastAt: last.t });
-        const cx = v.sx(last.x), cy = v.sy(last.y);
-        ctx.fillStyle = live ? "#16a34a" : "#2563eb";
-        ctx.beginPath(); ctx.arc(cx, cy, 7 * DPR, 0, 7); ctx.fill();
-        ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 3 * DPR;
-        ctx.beginPath(); ctx.arc(cx, cy, 7 * DPR, 0, 7); ctx.stroke();
-        ctx.strokeStyle = live ? "rgba(22,163,74,0.35)" : "rgba(37,99,235,0.3)"; ctx.lineWidth = 2 * DPR;
-        ctx.beginPath(); ctx.arc(cx, cy, 12 * DPR, 0, 7); ctx.stroke();
+          // hover data: screen position + cumulative distance + hr + time per point
+          let cum = 0;
+          for (let i = 0; i < traj.length; i++) {
+            if (i > 0) cum += Math.hypot(traj[i].x - traj[i - 1].x, traj[i].y - traj[i - 1].y);
+            hoverData.push({ sx: v.sx(traj[i].x), sy: v.sy(traj[i].y), t: traj[i].t, hr: traj[i].hr || 0, dist: cum });
+          }
+        }
 
-        // heart-rate label next to the current position
-        if (last.hr > 0) {
-          ctx.font = `700 ${13 * DPR}px -apple-system, "Segoe UI", sans-serif`;
-          ctx.textAlign = "left"; ctx.textBaseline = "middle";
-          const label = "♥ " + last.hr;
-          const lx = cx + 16 * DPR, ly = cy - 14 * DPR;
-          ctx.lineWidth = 3 * DPR; ctx.strokeStyle = "#ffffff"; ctx.strokeText(label, lx, ly);
-          ctx.fillStyle = "#e11d48"; ctx.fillText(label, lx, ly);
+        // live position dot — shown even before the run starts (no trajectory yet)
+        if (allPts.length) {
+          const last = allPts[allPts.length - 1], live = isLiveSession({ lastAt: last.t });
+          const cx = v.sx(last.x), cy = v.sy(last.y);
+          ctx.fillStyle = live ? "#16a34a" : "#2563eb";
+          ctx.beginPath(); ctx.arc(cx, cy, 7 * DPR, 0, 7); ctx.fill();
+          ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 3 * DPR;
+          ctx.beginPath(); ctx.arc(cx, cy, 7 * DPR, 0, 7); ctx.stroke();
+          ctx.strokeStyle = live ? "rgba(22,163,74,0.35)" : "rgba(37,99,235,0.3)"; ctx.lineWidth = 2 * DPR;
+          ctx.beginPath(); ctx.arc(cx, cy, 12 * DPR, 0, 7); ctx.stroke();
+          if (last.hr > 0) {
+            ctx.font = `700 ${13 * DPR}px -apple-system, "Segoe UI", sans-serif`;
+            ctx.textAlign = "left"; ctx.textBaseline = "middle";
+            const label = "♥ " + last.hr;
+            const lx = cx + 16 * DPR, ly = cy - 14 * DPR;
+            ctx.lineWidth = 3 * DPR; ctx.strokeStyle = "#ffffff"; ctx.strokeText(label, lx, ly);
+            ctx.fillStyle = "#e11d48"; ctx.fillText(label, lx, ly);
+          }
         }
       }
 
@@ -759,6 +812,33 @@
       el("sessionSearch").addEventListener("input", (e) => { sessionQuery = e.target.value; renderSessions(); });
       el("assignSelect").addEventListener("change", (e) => { if (current) assignSession(current.id, e.target.value); });
       el("liveToggle").addEventListener("change", (e) => { liveMode = e.target.checked; if (liveMode && sessions.length) selectSession(sessions[0].id); });
+
+      // Hover over the trajectory: show heart rate, time and distance at that point.
+      const tooltip = el("tooltip");
+      cv.addEventListener("mousemove", (e) => {
+        if (!hoverData.length) { tooltip.style.display = "none"; return; }
+        const mx = e.offsetX * DPR, my = e.offsetY * DPR;
+        let best = null, bestD = Infinity;
+        for (const p of hoverData) {
+          const d = Math.hypot(p.sx - mx, p.sy - my);
+          if (d < bestD) { bestD = d; best = p; }
+        }
+        if (best && bestD <= 16 * DPR) {
+          const hr = best.hr > 0 ? `${best.hr} bpm` : "—";
+          const t = current && current.startedAt ? fmtMs(best.t - current.startedAt) : "—";
+          tooltip.innerHTML =
+            `<div class="tt-row"><span class="tt-k">♥ Heart</span><span class="tt-hr">${hr}</span></div>` +
+            `<div class="tt-row"><span class="tt-k">Time</span><span>${t}</span></div>` +
+            `<div class="tt-row"><span class="tt-k">Distance</span><span>${best.dist.toFixed(2)} m</span></div>`;
+          tooltip.style.left = e.offsetX + "px";
+          tooltip.style.top = e.offsetY + "px";
+          tooltip.style.display = "block";
+        } else {
+          tooltip.style.display = "none";
+        }
+      });
+      cv.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+      setInterval(updateTimerDisplay, 250);
 
       renderChips();
       resize();

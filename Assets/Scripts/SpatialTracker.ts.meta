@@ -35,12 +35,18 @@
     boardWidthMeters: false
     camera: false
     enableHeartRate: false
+    endSound: false
+    enterSound: false
     hrDeviceName: false
     maxNumber: false
     minSpacingMeters: false
+    overlayText: false
     reachRadiusMeters: false
+    reachSound: false
     sendIntervalSeconds: false
+    startSound: false
     tileSizeMeters: false
+    timerText: false
     waypointsParent: false
   ScriptTypesHidden:
     {}
@@ -67,6 +73,12 @@
       tileSizeMeters: 0.300000
       reachRadiusMeters: 0.400000
       minSpacingMeters: 0.600000
+      startSound: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      enterSound: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      reachSound: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      endSound: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      timerText: !<reference.Text> 00000000-0000-0000-0000-000000000000
+      overlayText: !<reference.Text> 00000000-0000-0000-0000-000000000000
   ScriptTypes:
     -
       {}
@@ -87,3 +99,9 @@
     - '// @input float tileSizeMeters = 0.3 {"hint":"Tile size in meters (edge length of each numbered box)."}'
     - '// @input float reachRadiusMeters = 0.4 {"hint":"How close (meters) the player must get to a box to count as reached."}'
     - "// @input float minSpacingMeters = 0.6 {\"hint\":\"Minimum spacing between box centers in meters (so they don't overlap).\"}"
+    - '// @input Asset.AudioTrackAsset startSound {"hint":"Sound played right after the board is placed (start)."}'
+    - '// @input Asset.AudioTrackAsset enterSound {"hint":"Sound played when the user steps into the board (enter)."}'
+    - '// @input Asset.AudioTrackAsset reachSound {"hint":"Sound played each time a number is reached successfully."}'
+    - '// @input Asset.AudioTrackAsset endSound {"hint":"Sound played when the final number is reached (end)."}'
+    - '// @input Component.Text timerText {"hint":"HUD Text that shows the run timer (TimerText under the Camera)."}'
+    - '// @input Component.Text overlayText {"hint":"HUD Text used for instructions/overlays (OverlayText under the Camera)."}'

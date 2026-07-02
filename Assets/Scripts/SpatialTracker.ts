@@ -26,6 +26,11 @@ const COLOR_GREY = new vec4(0.55, 0.58, 0.65, 1.0); // not yet reached
 const COLOR_TARGET = new vec4(1.0, 0.55, 0.1, 1.0); // next one to run to (orange)
 const COLOR_REACHED = new vec4(0.15, 0.85, 0.45, 1.0); // already reached (green)
 
+// Overlay instruction messages
+const MSG_FIRST = "The experience starts\nwhen you step inside the box";
+const MSG_COMPLETE = "Complete!\nStep out of the box to play again";
+const MSG_REPEAT = "Step inside the box\nto start the test";
+
 interface Waypoint {
   object: SceneObject;
   tileMaterial: Material;
@@ -102,6 +107,41 @@ export class SpatialTracker extends BaseScriptComponent {
   @hint("Minimum spacing between box centers in meters (so they don't overlap).")
   minSpacingMeters: number = 0.6;
 
+  @input
+  @allowUndefined
+  @hint("Sound played when the user steps into the board (enter).")
+  enterSound: AudioTrackAsset;
+
+  @input
+  @allowUndefined
+  @hint("Reach sound option 1 - one of the three plays at random each time a number is reached.")
+  reachSound1: AudioTrackAsset;
+
+  @input
+  @allowUndefined
+  @hint("Reach sound option 2 - one of the three plays at random each time a number is reached.")
+  reachSound2: AudioTrackAsset;
+
+  @input
+  @allowUndefined
+  @hint("Reach sound option 3 - one of the three plays at random each time a number is reached.")
+  reachSound3: AudioTrackAsset;
+
+  @input
+  @allowUndefined
+  @hint("Sound played when the final number is reached (end) - different from the reach sounds.")
+  endSound: AudioTrackAsset;
+
+  @input
+  @allowUndefined
+  @hint("HUD Text that shows the run timer (TimerText under the Camera).")
+  timerText: Text;
+
+  @input
+  @allowUndefined
+  @hint("HUD Text used for instructions/overlays (OverlayText under the Camera).")
+  overlayText: Text;
+
   private boardTransform: Transform;
   private cameraTransform: Transform;
 
@@ -115,6 +155,14 @@ export class SpatialTracker extends BaseScriptComponent {
   private active: Waypoint[] = []; // the ones spawned this round, ordered 1..N
   private targetNumber: number = 0; // next number to reach; 0 = none/inactive
   private gameActive: boolean = false;
+
+  // Run flow: "armed" (waiting to enter), "running", "finished"
+  private state: string = "idle";
+  private prevInside: boolean = false;
+  private enterTimeSec: number = 0;
+  private endElapsedSec: number = 0;
+  private firstRun: boolean = true;
+  private audio: AudioComponent = null;
 
   // Heart rate
   private currentHr: number = 0; // latest BPM (0 = none yet)
@@ -137,11 +185,27 @@ export class SpatialTracker extends BaseScriptComponent {
     this.cameraTransform = this.camera.getTransform();
     this.prevEnabled = this.boardVisuals.enabled;
     this.initWaypointPool();
+    this.initHud();
+    this.audio = this.getSceneObject().createComponent("Component.AudioComponent") as AudioComponent;
     this.isEditor = global.deviceInfoSystem.isEditor();
     if (this.enableHeartRate) {
       this.startHeartRate();
     }
     print("[SpatialTracker] Ready. Backend: " + this.backendUrl + " | pool: " + this.pool.length);
+  }
+
+  /** Place the head-locked HUD texts in front of the camera and clear them. */
+  private initHud() {
+    if (this.timerText) {
+      this.timerText.getSceneObject().getTransform().setLocalPosition(new vec3(0, 22, -100));
+      this.timerText.size = 72;
+      this.timerText.text = "";
+    }
+    if (this.overlayText) {
+      this.overlayText.getSceneObject().getTransform().setLocalPosition(new vec3(0, -8, -100));
+      this.overlayText.size = 44;
+      this.setOverlay("");
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -241,12 +305,28 @@ export class SpatialTracker extends BaseScriptComponent {
       return;
     }
 
-    // Game logic runs from the board visuals alone (works even without backend).
-    if (this.gameActive) {
-      this.checkReached();
-    }
+    const inside = this.isInsideBoard();
 
-    // Position streaming needs a live backend session.
+    if (this.state === "armed") {
+      // Timer + trajectory begin the moment the user is inside the board.
+      if (inside) {
+        this.onEnter();
+      }
+    } else if (this.state === "running") {
+      this.checkReached();
+    } else if (this.state === "finished") {
+      // Stepping out after finishing arms a fresh run to repeat.
+      if (!inside && this.prevInside) {
+        this.onSteppedOutAfterFinish();
+      }
+    }
+    this.prevInside = inside;
+
+    this.updateTimerText();
+
+    // Position streaming needs a live backend session. We stream even before the
+    // run starts so the web app can show a live dot (the trajectory only begins
+    // once the backend has a startedAt).
     if (!this.sessionId) {
       return;
     }
@@ -255,6 +335,14 @@ export class SpatialTracker extends BaseScriptComponent {
       this.timeAccum = 0;
       this.sendPosition();
     }
+  }
+
+  /** Is the user's head (top-down) currently within the board rectangle? */
+  private isInsideBoard(): boolean {
+    const u = this.getUserBoardXY();
+    return (
+      Math.abs(u.x) <= this.boardWidthMeters / 2 && Math.abs(u.y) <= this.boardHeightMeters / 2
+    );
   }
 
   /** Current head position in board-local space, projected to the ground -> meters. */
@@ -269,10 +357,39 @@ export class SpatialTracker extends BaseScriptComponent {
   // Placement -> new session + new random course
   // -------------------------------------------------------------------------
   private onBoardPlaced() {
+    this.firstRun = true;
+    this.armRun();
+  }
+
+  /**
+   * Prepare a fresh run: spawn a new course, create a backend session, and wait
+   * for the user to step into the board. No sound plays on placement.
+   */
+  private armRun() {
     this.sessionId = null;
     this.timeAccum = this.sendIntervalSeconds; // send the first point promptly
+    this.state = "armed";
+    this.enterTimeSec = 0;
+    this.endElapsedSec = 0;
     this.spawnCourse();
+    this.setTimer(0);
+    this.setOverlay(this.firstRun ? MSG_FIRST : MSG_REPEAT);
     this.createSession();
+  }
+
+  /** User stepped into the board: start the timer + trajectory. */
+  private onEnter() {
+    this.state = "running";
+    this.enterTimeSec = getTime();
+    this.setOverlay("");
+    this.playSound(this.enterSound);
+    this.reportStart();
+  }
+
+  /** After finishing, stepping out arms a repeat run. */
+  private onSteppedOutAfterFinish() {
+    this.firstRun = false;
+    this.armRun();
   }
 
   private spawnCourse() {
@@ -358,16 +475,99 @@ export class SpatialTracker extends BaseScriptComponent {
     this.targetNumber = w.n + 1;
     if (this.targetNumber <= this.active.length) {
       this.setTileColor(this.active[this.targetNumber - 1], COLOR_TARGET);
+      this.playReachSound();
       print("[SpatialTracker] Reached #" + w.n + " -> next: #" + this.targetNumber);
     } else {
+      // Final number reached: stop the timer and prompt to repeat.
+      this.state = "finished";
       this.gameActive = false;
+      this.endElapsedSec = getTime() - this.enterTimeSec;
+      this.playSound(this.endSound);
+      this.setOverlay(MSG_COMPLETE);
       print("[SpatialTracker] Course complete! All " + this.active.length + " reached.");
     }
   }
 
   // -------------------------------------------------------------------------
+  // HUD + audio helpers
+  // -------------------------------------------------------------------------
+  private updateTimerText() {
+    let sec = 0;
+    if (this.state === "running") {
+      sec = getTime() - this.enterTimeSec;
+    } else if (this.state === "finished") {
+      sec = this.endElapsedSec;
+    }
+    this.setTimer(sec);
+  }
+
+  private setTimer(sec: number) {
+    if (this.timerText) {
+      this.timerText.text = this.formatTime(sec);
+    }
+  }
+
+  private formatTime(sec: number): string {
+    if (sec < 0) sec = 0;
+    if (sec < 60) {
+      return sec.toFixed(1) + "s";
+    }
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return m + ":" + (s < 10 ? "0" + s : "" + s);
+  }
+
+  private setOverlay(msg: string) {
+    if (!this.overlayText) {
+      return;
+    }
+    this.overlayText.text = msg;
+    this.overlayText.getSceneObject().enabled = msg !== "";
+  }
+
+  private playSound(track: AudioTrackAsset) {
+    if (!track || !this.audio) {
+      return;
+    }
+    this.audio.audioTrack = track;
+    this.audio.play(1);
+  }
+
+  /** Play one of the (up to three) reach sounds at random. */
+  private playReachSound() {
+    const options: AudioTrackAsset[] = [];
+    if (this.reachSound1) options.push(this.reachSound1);
+    if (this.reachSound2) options.push(this.reachSound2);
+    if (this.reachSound3) options.push(this.reachSound3);
+    if (!options.length) {
+      return;
+    }
+    this.playSound(options[Math.floor(Math.random() * options.length)]);
+  }
+
+  // -------------------------------------------------------------------------
   // Backend communication
   // -------------------------------------------------------------------------
+  private async reportStart() {
+    const sid = this.sessionId;
+    if (!sid) {
+      return;
+    }
+    try {
+      const request = new Request(this.backendUrl + "/api/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: sid }),
+      });
+      const response = await internetModule.fetch(request);
+      if (response.status !== 200) {
+        print("[SpatialTracker] Start report failed: HTTP " + response.status);
+      }
+    } catch (e) {
+      print("[SpatialTracker] Start report error: " + e);
+    }
+  }
+
   private async createSession() {
     if (this.creatingSession) {
       return;

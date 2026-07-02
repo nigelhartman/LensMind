@@ -80,6 +80,8 @@ function summary(s) {
     waypointCount: s.waypoints ? s.waypoints.length : 0,
     reachedCount: s.events ? s.events.length : 0,
     patientId: s.patientId || null,
+    startedAt: s.startedAt || null,
+    endedAt: s.endedAt || null,
     lastAt: pts.length ? pts[pts.length - 1].t : s.createdAt,
   };
 }
@@ -263,6 +265,8 @@ const server = http.createServer(async (req, res) => {
       events: [], // [{ n, t, elapsedMs, splitMs }] each time a number is reached
       points: [],
       patientId: patients.has(body.patientId) ? body.patientId : null,
+      startedAt: null, // set when the user first steps into the board
+      endedAt: null, // set when the last number is reached
     };
     sessions.set(id, session);
     saveSession(session);
@@ -295,6 +299,25 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { ok: true, count: session.points.length });
   }
 
+  // ---- Run started (user stepped into the board) ----
+  if (pathname === "/api/start" && req.method === "POST") {
+    let body;
+    try {
+      body = await readBody(req);
+    } catch {
+      return sendJson(res, 400, { error: "Invalid JSON" });
+    }
+    const session = sessions.get(body.sessionId);
+    if (!session) return sendJson(res, 404, { error: "Unknown session" });
+    if (!session.startedAt) {
+      session.startedAt = Date.now();
+      saveSession(session);
+      broadcast("start", { sessionId: session.id, startedAt: session.startedAt });
+      console.log(`Session ${session.id}: started (entered board)`);
+    }
+    return sendJson(res, 200, { ok: true, startedAt: session.startedAt });
+  }
+
   // ---- Waypoint reached (user stood on a number) ----
   if (pathname === "/api/waypoint" && req.method === "POST") {
     let body;
@@ -313,11 +336,23 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, duplicate: true });
     }
     const now = Date.now();
-    const elapsedMs = now - session.createdAt;
+    // Timing is relative to when the user stepped into the board (fallback: creation).
+    if (!session.startedAt) {
+      session.startedAt = now;
+      broadcast("start", { sessionId: session.id, startedAt: session.startedAt });
+    }
+    const elapsedMs = now - session.startedAt;
     const prev = session.events[session.events.length - 1];
     const splitMs = prev ? now - prev.t : elapsedMs;
     const event = { n, t: now, elapsedMs, splitMs };
     session.events.push(event);
+    // Reaching the final number ends the run.
+    const total = session.waypoints ? session.waypoints.length : 0;
+    if (total > 0 && session.events.length >= total && !session.endedAt) {
+      session.endedAt = now;
+      broadcast("end", { sessionId: session.id, endedAt: session.endedAt });
+      console.log(`Session ${session.id}: finished in ${((now - session.startedAt) / 1000).toFixed(1)}s`);
+    }
     saveSession(session);
     broadcast("waypoint", { sessionId: session.id, ...event });
     console.log(`Session ${session.id}: reached #${n} at ${(elapsedMs / 1000).toFixed(1)}s`);

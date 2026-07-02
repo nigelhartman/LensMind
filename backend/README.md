@@ -79,6 +79,27 @@ must reach them **in order**: run to `1`, then `2`, and so on.
 Tunable on the **`SpatialTracker`** script: `maxNumber` (1–10, capped by the box
 pool size), `tileSizeMeters`, `reachRadiusMeters`, `minSpacingMeters`.
 
+### Run flow, timer, sounds & overlays
+
+- After the board is placed, the boxes appear and a head-locked overlay reads
+  *"The experience starts when you step inside the box."* Nothing is timed yet.
+- The **timer** (a head-locked HUD text) and the **trajectory** both start the
+  moment the user steps into the board; the timer stops when the **last** number is
+  reached. Waypoint times in the web app are measured from board entry, not from
+  when the lens started.
+- On completion the overlay reads *"Complete! Step out of the box to play again."*
+  Stepping out arms a fresh run and shows *"Step inside the box to start the test."*;
+  stepping back in starts a new session with a new random course.
+
+**Sound inputs** on `SpatialTracker` (assign your own audio; all optional): there is
+**no** placement sound — `enterSound` (stepping in), `reachSound1/2/3` (one chosen at
+**random** on each number reached), and a distinct `endSound` (final number). The HUD
+texts are wired via `timerText` / `overlayText` (under the Camera).
+
+> Note: `boardWidthMeters` / `boardHeightMeters` drive both the random box placement
+> and the "inside the board" detection, so keep them matched to the **physical size of
+> the border mesh** (the starter border is 2×2 m).
+
 ---
 
 ## Heart rate (Bluetooth)
@@ -117,6 +138,7 @@ characteristic `0x2A37`).
 | ------ | ----------------------------- | -------------------------------------------------------- |
 | POST   | `/api/session`                | `{ boardWidth, boardHeight, maxNumber, waypoints:[{n,x,y}] }` → `{ sessionId }` |
 | POST   | `/api/position`               | `{ sessionId, x, y, hr? }` → `{ ok, count }` (`hr` = optional bpm) |
+| POST   | `/api/start`                  | `{ sessionId }` → marks run start (user entered board)   |
 | POST   | `/api/waypoint`               | `{ sessionId, n }` → `{ ok }` (a number was reached)     |
 | GET    | `/api/sessions`               | list of session summaries (newest first), incl. `patientId` |
 | GET    | `/api/sessions/:id`           | full session incl. points, waypoints, reach events       |
@@ -126,7 +148,7 @@ characteristic `0x2A37`).
 | POST   | `/api/patients`               | `{ name, birthday, gender }` → the new patient           |
 | PATCH  | `/api/patients/:id`           | update a patient                                         |
 | DELETE | `/api/patients/:id`           | remove a patient (its sessions become unassigned)        |
-| GET    | `/api/stream`                 | SSE: `patients`, `patient`, `patientDeleted`, `sessions`, `session`, `point`, `waypoint`, `assigned`, `deleted` |
+| GET    | `/api/stream`                 | SSE: `patients`, `patient`, `patientDeleted`, `sessions`, `session`, `point`, `waypoint`, `start`, `end`, `assigned`, `deleted` |
 | GET    | `/`                           | the web frontend                                         |
 
 All responses are JSON and CORS-open so the lens can reach them.
@@ -149,8 +171,12 @@ rather than deleting the recordings.
   as the user places the board and walks around.
 - **Sessions list** — click any past session to replay its full path; delete with ✕.
 - **Canvas** — draws the game board rectangle to scale, the numbered boxes
-  (grey / orange target / green reached), the walked path (gradient polyline), the
-  start point, and the current position (glowing dot).
+  (grey / orange target / green reached), and the current position (glowing dot).
+  The **live dot shows even before the run starts**, but the **trajectory** (gradient
+  polyline) is only drawn once the user has stepped into the board, and it continues
+  until the last number is reached (even if the user steps out in between).
+- **Timer** stat counts from board entry to the final number. **Hover the trajectory**
+  to see the heart rate, elapsed time, and distance at that point next to the cursor.
 - **Course panel** — progress bar, the next target, and a stats table of each
   number's reach time and split.
 - Live updates arrive over SSE; position, points, distance, progress, and the
