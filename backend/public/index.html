@@ -1,0 +1,774 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SpatialCognition — Movement Assessment</title>
+    <style>
+      :root {
+        --bg: #eef2f7;
+        --surface: #ffffff;
+        --surface-2: #f7f9fc;
+        --border: #e3e8ef;
+        --border-strong: #d3dae4;
+        --text: #0f172a;
+        --muted: #64748b;
+        --faint: #94a3b8;
+        --primary: #2563eb;
+        --primary-dark: #1d4ed8;
+        --primary-soft: #eaf1fe;
+        --teal: #0d9488;
+        --reached: #16a34a;
+        --target: #f59e0b;
+        --grey: #94a3b8;
+        --danger: #ef4444;
+        --live: #16a34a;
+        --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.06);
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        display: grid;
+        grid-template-columns: 372px 1fr;
+        height: 100vh;
+        overflow: hidden;
+        -webkit-font-smoothing: antialiased;
+      }
+      button { font-family: inherit; cursor: pointer; }
+      input, select { font-family: inherit; }
+
+      /* ---------- Sidebar ---------- */
+      aside {
+        background: var(--surface);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .brand {
+        padding: 16px 18px;
+        border-bottom: 1px solid var(--border);
+        display: flex; align-items: center; gap: 12px;
+      }
+      .brand .logo {
+        width: 38px; height: 38px; border-radius: 10px; flex: none;
+        background: linear-gradient(135deg, var(--primary), var(--teal));
+        display: flex; align-items: center; justify-content: center; color: #fff;
+      }
+      .brand h1 { font-size: 15px; margin: 0; font-weight: 700; letter-spacing: -0.2px; }
+      .brand p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+      .brand .conn { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+      .brand .conn .d { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+      .brand .conn .d.on { background: var(--live); box-shadow: 0 0 0 3px rgba(22,163,74,0.15); }
+
+      .panel { border-bottom: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+      .panel.sessions-panel { flex: 1; }
+      .panel-head {
+        padding: 13px 18px 9px; display: flex; align-items: center; justify-content: space-between;
+      }
+      .panel-head h2 {
+        font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;
+        color: var(--muted); margin: 0; font-weight: 700;
+      }
+      .btn {
+        border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
+        border-radius: 8px; padding: 6px 11px; font-size: 12.5px; font-weight: 600;
+        display: inline-flex; align-items: center; gap: 6px; transition: 0.12s;
+      }
+      .btn:hover { border-color: var(--primary); color: var(--primary); }
+      .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+      .btn.primary:hover { background: var(--primary-dark); }
+      .btn.sm { padding: 4px 9px; font-size: 12px; }
+
+      .search {
+        margin: 0 18px 10px; position: relative;
+      }
+      .search input {
+        width: 100%; border: 1px solid var(--border); background: var(--surface-2);
+        border-radius: 9px; padding: 8px 12px 8px 32px; font-size: 13px; color: var(--text);
+        outline: none; transition: 0.12s;
+      }
+      .search input:focus { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px var(--primary-soft); }
+      .search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--faint); }
+
+      .list { overflow-y: auto; padding: 0 12px 12px; min-height: 0; }
+      .patients-panel .list { max-height: 236px; }
+
+      /* Patient card */
+      .patient {
+        display: flex; align-items: center; gap: 11px; padding: 9px 11px; margin: 5px 0;
+        border: 1px solid var(--border); border-radius: 11px; background: var(--surface);
+        cursor: pointer; transition: 0.12s; position: relative;
+      }
+      .patient:hover { border-color: var(--border-strong); background: var(--surface-2); }
+      .patient.active { border-color: var(--primary); background: var(--primary-soft); }
+      .avatar {
+        width: 34px; height: 34px; border-radius: 50%; flex: none; color: #fff;
+        display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 700;
+      }
+      .patient .info { min-width: 0; flex: 1; }
+      .patient .nm { font-size: 13.5px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .patient .mt { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+      .patient .cnt {
+        font-size: 11px; font-weight: 700; color: var(--primary); background: var(--primary-soft);
+        border-radius: 999px; padding: 2px 8px; flex: none;
+      }
+      .patient .del, .session .del {
+        position: absolute; top: 7px; right: 8px; opacity: 0; border: none; background: none;
+        color: var(--faint); font-size: 14px; line-height: 1; padding: 3px 5px; border-radius: 6px;
+      }
+      .patient:hover .del, .session:hover .del { opacity: 1; }
+      .patient .del:hover, .session .del:hover { background: #fdecec; color: var(--danger); }
+
+      /* Filter chips */
+      .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 18px 10px; }
+      .chip {
+        border: 1px solid var(--border-strong); background: var(--surface); color: var(--muted);
+        border-radius: 999px; padding: 4px 11px; font-size: 12px; font-weight: 600; transition: 0.12s;
+        display: inline-flex; align-items: center; gap: 6px;
+      }
+      .chip:hover { border-color: var(--primary); color: var(--primary); }
+      .chip.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+      .chip .x { font-size: 13px; opacity: 0.85; }
+
+      .toggle-row {
+        display: flex; align-items: center; justify-content: space-between; padding: 2px 18px 12px;
+        font-size: 12.5px; color: var(--muted);
+      }
+      .switch { position: relative; width: 40px; height: 22px; }
+      .switch input { opacity: 0; width: 0; height: 0; }
+      .slider { position: absolute; inset: 0; background: var(--border-strong); border-radius: 999px; transition: 0.18s; cursor: pointer; }
+      .slider::before { content: ""; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: 0.18s; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+      input:checked + .slider { background: var(--primary); }
+      input:checked + .slider::before { transform: translateX(18px); }
+
+      /* Session card */
+      .session {
+        border: 1px solid var(--border); background: var(--surface); border-radius: 11px;
+        padding: 10px 12px; margin: 6px 0; cursor: pointer; transition: 0.12s; position: relative;
+      }
+      .session:hover { border-color: var(--border-strong); }
+      .session.active { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
+      .session .title { font-size: 13.5px; font-weight: 650; display: flex; align-items: center; gap: 7px; }
+      .badge-live { font-size: 9.5px; font-weight: 800; letter-spacing: 0.4px; color: var(--live); background: #e7f6ec; border: 1px solid #b7e4c4; border-radius: 999px; padding: 1px 6px; }
+      .session .meta { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+      .ptag { display: inline-flex; align-items: center; gap: 6px; margin-top: 7px; font-size: 12px; }
+      .ptag .dot { width: 8px; height: 8px; border-radius: 50%; }
+      .ptag.assigned { color: var(--text); font-weight: 600; }
+      .ptag.none { color: var(--faint); }
+
+      .empty { color: var(--faint); font-size: 12.5px; text-align: center; padding: 22px 12px; line-height: 1.5; }
+
+      /* ---------- Main ---------- */
+      main { position: relative; min-width: 0; display: flex; flex-direction: column; }
+      .topbar {
+        background: var(--surface); border-bottom: 1px solid var(--border);
+        padding: 12px 22px; display: flex; align-items: center; gap: 26px; flex-wrap: wrap;
+      }
+      .topbar .sess-title { font-size: 15px; font-weight: 700; }
+      .assign { display: flex; align-items: center; gap: 8px; }
+      .assign label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
+      .assign select {
+        border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px;
+        font-size: 13px; font-weight: 600; color: var(--text); background: var(--surface); outline: none; max-width: 220px;
+      }
+      .assign select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+      .assign select:disabled { color: var(--faint); background: var(--surface-2); }
+      .stats { display: flex; gap: 24px; margin-left: auto; align-items: center; }
+      .stat .k { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
+      .stat .v { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .stat .v small { font-size: 12px; color: var(--muted); font-weight: 500; }
+
+      .canvas-wrap { flex: 1; position: relative; min-height: 0; background: var(--surface-2); }
+      canvas { display: block; width: 100%; height: 100%; }
+      .hint {
+        position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+        background: #fff; border: 1px solid var(--border); box-shadow: var(--shadow);
+        padding: 8px 15px; border-radius: 999px; font-size: 12.5px; color: var(--muted);
+      }
+
+      /* Course panel */
+      .game-panel {
+        position: absolute; top: 16px; right: 16px; width: 264px; max-height: calc(100% - 32px);
+        background: #fff; border: 1px solid var(--border); border-radius: 14px;
+        display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--shadow);
+      }
+      .game-panel.hidden { display: none; }
+      .gp-head { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+      .gp-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); font-weight: 700; }
+      .gp-prog { font-size: 24px; font-weight: 800; margin-top: 3px; font-variant-numeric: tabular-nums; }
+      .gp-prog small { font-size: 13px; color: var(--muted); font-weight: 600; }
+      .gp-bar { height: 7px; border-radius: 999px; background: var(--surface-2); margin-top: 10px; overflow: hidden; border: 1px solid var(--border); }
+      .gp-bar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--reached), var(--teal)); transition: width 0.3s; }
+      .gp-next { margin-top: 11px; font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+      .gp-chip { width: 21px; height: 21px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #fff; }
+      .gp-table { overflow-y: auto; }
+      .gp-table table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+      .gp-table th { text-align: left; color: var(--muted); font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; padding: 9px 16px 6px; position: sticky; top: 0; background: #fff; }
+      .gp-table td { padding: 6px 16px; border-top: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+      .gp-table td.n { display: flex; align-items: center; gap: 9px; }
+      .dotn { width: 19px; height: 19px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 800; color: #fff; }
+
+      /* ---------- Modal ---------- */
+      .modal-bg {
+        position: fixed; inset: 0; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(2px);
+        display: none; align-items: center; justify-content: center; z-index: 50;
+      }
+      .modal-bg.open { display: flex; }
+      .modal {
+        background: #fff; border-radius: 16px; width: 380px; max-width: calc(100vw - 32px);
+        box-shadow: 0 20px 60px rgba(15, 23, 42, 0.25); overflow: hidden;
+      }
+      .modal h3 { margin: 0; padding: 18px 20px; font-size: 16px; border-bottom: 1px solid var(--border); }
+      .modal .body { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+      .field label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 5px; }
+      .field input, .field select {
+        width: 100%; border: 1px solid var(--border-strong); border-radius: 9px; padding: 9px 11px;
+        font-size: 14px; color: var(--text); background: var(--surface); outline: none;
+      }
+      .field input:focus, .field select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+      .modal .foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <div class="brand">
+        <div class="logo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12h4l3 8 4-16 3 8h4" />
+          </svg>
+        </div>
+        <div>
+          <h1>SpatialCognition</h1>
+          <p>Movement Assessment</p>
+        </div>
+        <div class="conn"><span class="d" id="connDot"></span><span id="connTxt">connecting…</span></div>
+      </div>
+
+      <!-- Patients -->
+      <div class="panel patients-panel">
+        <div class="panel-head">
+          <h2>Patients</h2>
+          <button class="btn primary sm" id="addPatientBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            Add patient
+          </button>
+        </div>
+        <div class="search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/></svg>
+          <input id="patientSearch" placeholder="Search patients…" />
+        </div>
+        <div class="list" id="patients"></div>
+      </div>
+
+      <!-- Sessions -->
+      <div class="panel sessions-panel">
+        <div class="panel-head">
+          <h2>Sessions</h2>
+        </div>
+        <div class="chips" id="chips"></div>
+        <div class="search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/></svg>
+          <input id="sessionSearch" placeholder="Search sessions…" />
+        </div>
+        <div class="toggle-row">
+          <span>Follow live session</span>
+          <span class="switch"><input type="checkbox" id="liveToggle" checked /><span class="slider"></span></span>
+        </div>
+        <div class="list" id="sessions"></div>
+      </div>
+    </aside>
+
+    <main>
+      <div class="topbar">
+        <div class="sess-title" id="sName">No session selected</div>
+        <div class="assign">
+          <label>Patient</label>
+          <select id="assignSelect" disabled><option value="">— Unassigned —</option></select>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="k">Position (m)</div><div class="v" id="sPos">—</div></div>
+          <div class="stat"><div class="k">Points</div><div class="v" id="sCount">0</div></div>
+          <div class="stat"><div class="k">Distance</div><div class="v" id="sDist">0 <small>m</small></div></div>
+          <div class="stat"><div class="k">Progress</div><div class="v" id="sProg">—</div></div>
+          <div class="stat"><div class="k">Heart rate</div><div class="v" id="sHr">— <small>bpm</small></div></div>
+        </div>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="cv"></canvas>
+        <div class="hint" id="hint">Waiting for the lens to place a board…</div>
+        <div class="game-panel hidden" id="gamePanel">
+          <div class="gp-head">
+            <div class="gp-title">Course</div>
+            <div class="gp-prog" id="gpProg">0<small> / 0</small></div>
+            <div class="gp-bar"><i id="gpBar" style="width:0%"></i></div>
+            <div class="gp-next" id="gpNext"></div>
+          </div>
+          <div class="gp-table" id="gpTable"></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Add patient modal -->
+    <div class="modal-bg" id="modalBg">
+      <div class="modal">
+        <h3>Add patient</h3>
+        <div class="body">
+          <div class="field"><label>Full name</label><input id="pName" placeholder="e.g. Jane Doe" autocomplete="off" /></div>
+          <div class="field"><label>Date of birth</label><input id="pBirthday" type="date" /></div>
+          <div class="field"><label>Gender</label>
+            <select id="pGender">
+              <option>Female</option><option>Male</option><option>Other</option><option>Unspecified</option>
+            </select>
+          </div>
+        </div>
+        <div class="foot">
+          <button class="btn" id="cancelPatient">Cancel</button>
+          <button class="btn primary" id="savePatient">Save patient</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const API = "";
+      const el = (id) => document.getElementById(id);
+
+      let sessions = [];
+      let patients = [];
+      let selectedId = null;
+      let current = null;
+      let liveMode = true;
+      let filterMode = "all"; // 'all' | 'unassigned' | <patientId>
+      let patientQuery = "";
+      let sessionQuery = "";
+
+      // ---------- Helpers ----------
+      const AVATAR_COLORS = ["#2563eb", "#0d9488", "#7c3aed", "#db2777", "#ea580c", "#0891b2", "#4f46e5", "#059669"];
+      function hashIdx(str, mod) { let h = 0; for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0; return h % mod; }
+      function initials(name) {
+        const parts = (name || "").trim().split(/\s+/);
+        return ((parts[0] || "")[0] || "?").toUpperCase() + (parts.length > 1 ? (parts[parts.length - 1][0] || "").toUpperCase() : "");
+      }
+      function ageFromBirthday(bd) {
+        if (!bd) return null;
+        const d = new Date(bd); if (isNaN(d)) return null;
+        const now = new Date(); let a = now.getFullYear() - d.getFullYear();
+        const m = now.getMonth() - d.getMonth();
+        if (m < 0 || (m === 0 && now.getDate() < d.getDate())) a--;
+        return a;
+      }
+      function genderShort(g) { return ({ Female: "F", Male: "M", Other: "O" })[g] || "–"; }
+      function patientById(id) { return patients.find((p) => p.id === id) || null; }
+      function sessionCount(pid) { return sessions.filter((s) => s.patientId === pid).length; }
+      function fmtTime(ts) {
+        return new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+      }
+      function fmtMs(ms) {
+        const s = ms / 1000; if (s < 60) return s.toFixed(1) + "s";
+        return Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+      }
+      function isLiveSession(s) { return Date.now() - s.lastAt < 10000; }
+
+      // ---------- Patients ----------
+      function renderPatients() {
+        const box = el("patients");
+        const q = patientQuery.toLowerCase();
+        const list = patients.filter((p) => p.name.toLowerCase().includes(q));
+        if (!patients.length) {
+          box.innerHTML = '<div class="empty">No patients yet.<br/>Add one to organize sessions.</div>';
+          return;
+        }
+        if (!list.length) { box.innerHTML = '<div class="empty">No patients match your search.</div>'; return; }
+        box.innerHTML = "";
+        list.forEach((p) => {
+          const color = AVATAR_COLORS[hashIdx(p.id, AVATAR_COLORS.length)];
+          const age = ageFromBirthday(p.birthday);
+          const meta = [genderShort(p.gender), age != null ? age + "y" : null].filter(Boolean).join(" · ");
+          const div = document.createElement("div");
+          div.className = "patient" + (filterMode === p.id ? " active" : "");
+          div.innerHTML =
+            `<div class="avatar" style="background:${color}">${initials(p.name)}</div>` +
+            `<div class="info"><div class="nm">${escapeHtml(p.name)}</div><div class="mt">${meta || "—"}</div></div>` +
+            `<div class="cnt">${sessionCount(p.id)}</div>` +
+            `<button class="del" title="Delete patient">✕</button>`;
+          div.onclick = (e) => {
+            if (e.target.classList.contains("del")) return;
+            setFilter(filterMode === p.id ? "all" : p.id);
+          };
+          div.querySelector(".del").onclick = async (e) => {
+            e.stopPropagation();
+            if (!confirm(`Delete patient "${p.name}"? Their sessions will become unassigned.`)) return;
+            await fetch(`${API}/api/patients/${p.id}`, { method: "DELETE" });
+          };
+          box.appendChild(div);
+        });
+      }
+
+      function openModal() { el("modalBg").classList.add("open"); el("pName").focus(); }
+      function closeModal() { el("modalBg").classList.remove("open"); el("pName").value = ""; el("pBirthday").value = ""; el("pGender").value = "Female"; }
+      async function savePatient() {
+        const name = el("pName").value.trim();
+        if (!name) { el("pName").focus(); return; }
+        await fetch(`${API}/api/patients`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, birthday: el("pBirthday").value || null, gender: el("pGender").value }),
+        });
+        closeModal();
+      }
+
+      // ---------- Filters / chips ----------
+      function setFilter(mode) {
+        filterMode = mode;
+        renderChips(); renderPatients(); renderSessions();
+      }
+      function renderChips() {
+        const box = el("chips");
+        let html =
+          `<button class="chip ${filterMode === "all" ? "active" : ""}" data-f="all">All</button>` +
+          `<button class="chip ${filterMode === "unassigned" ? "active" : ""}" data-f="unassigned">Unassigned</button>`;
+        const p = patientById(filterMode);
+        if (p) html += `<button class="chip active" data-f="clear">${escapeHtml(p.name)} <span class="x">✕</span></button>`;
+        box.innerHTML = html;
+        box.querySelectorAll(".chip").forEach((c) => {
+          c.onclick = () => setFilter(c.dataset.f === "clear" ? "all" : c.dataset.f);
+        });
+      }
+
+      // ---------- Sessions ----------
+      function sessionMatchesFilter(s) {
+        if (filterMode === "unassigned") return !s.patientId;
+        if (filterMode !== "all") return s.patientId === filterMode;
+        return true;
+      }
+      function sessionMatchesSearch(s, idx) {
+        if (!sessionQuery) return true;
+        const q = sessionQuery.toLowerCase();
+        const p = patientById(s.patientId);
+        const hay = [`session ${sessions.length - idx}`, fmtTime(s.createdAt), p ? p.name : "unassigned"].join(" ").toLowerCase();
+        return hay.includes(q);
+      }
+      function renderSessions() {
+        const box = el("sessions");
+        const rows = sessions.map((s, i) => ({ s, i })).filter(({ s, i }) => sessionMatchesFilter(s) && sessionMatchesSearch(s, i));
+        if (!sessions.length) {
+          box.innerHTML = '<div class="empty">No sessions yet.<br/>Start the lens and place the board.</div>';
+          return;
+        }
+        if (!rows.length) { box.innerHTML = '<div class="empty">No sessions match this filter.</div>'; return; }
+        box.innerHTML = "";
+        rows.forEach(({ s, i }) => {
+          const live = isLiveSession(s);
+          const p = patientById(s.patientId);
+          const color = p ? AVATAR_COLORS[hashIdx(p.id, AVATAR_COLORS.length)] : "#94a3b8";
+          const div = document.createElement("div");
+          div.className = "session" + (s.id === selectedId ? " active" : "");
+          div.innerHTML =
+            `<div class="title">Session ${sessions.length - i}${live ? ' <span class="badge-live">LIVE</span>' : ""}</div>` +
+            `<div class="meta">${fmtTime(s.createdAt)} · ${s.pointCount} pts · ${s.reachedCount}/${s.waypointCount} reached</div>` +
+            (p
+              ? `<div class="ptag assigned"><span class="dot" style="background:${color}"></span>${escapeHtml(p.name)}</div>`
+              : `<div class="ptag none"><span class="dot" style="background:${color}"></span>Unassigned</div>`) +
+            `<button class="del" title="Delete session">✕</button>`;
+          div.onclick = (e) => {
+            if (e.target.classList.contains("del")) return;
+            liveMode = false; el("liveToggle").checked = false;
+            selectSession(s.id);
+          };
+          div.querySelector(".del").onclick = async (e) => {
+            e.stopPropagation();
+            if (!confirm("Delete this session?")) return;
+            await fetch(`${API}/api/sessions/${s.id}`, { method: "DELETE" });
+          };
+          box.appendChild(div);
+        });
+      }
+
+      async function selectSession(id) {
+        selectedId = id;
+        renderSessions();
+        const r = await fetch(`${API}/api/sessions/${id}`);
+        if (!r.ok) { current = null; updateStats(); renderGameStats(); renderAssign(); draw(); return; }
+        current = await r.json();
+        updateStats(); renderGameStats(); renderAssign(); draw();
+        el("hint").style.display = current.points.length ? "none" : "block";
+      }
+
+      function upsertSummary(sum) {
+        const idx = sessions.findIndex((s) => s.id === sum.id);
+        if (idx >= 0) sessions[idx] = sum; else sessions.unshift(sum);
+        sessions.sort((a, b) => b.createdAt - a.createdAt);
+      }
+
+      // ---------- Assignment ----------
+      function renderAssign() {
+        const sel = el("assignSelect");
+        sel.innerHTML = '<option value="">— Unassigned —</option>' +
+          patients.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+        if (current) { sel.disabled = false; sel.value = current.patientId || ""; }
+        else { sel.disabled = true; sel.value = ""; }
+      }
+      async function assignSession(sessionId, patientId) {
+        await fetch(`${API}/api/sessions/${sessionId}/patient`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ patientId: patientId || null }),
+        });
+      }
+      function applyAssignment(sessionId, patientId) {
+        const sum = sessions.find((s) => s.id === sessionId);
+        if (sum) sum.patientId = patientId;
+        if (current && current.id === sessionId) { current.patientId = patientId; renderAssign(); }
+        renderSessions(); renderPatients();
+      }
+
+      // ---------- Live stream ----------
+      function connectStream() {
+        const es = new EventSource(`${API}/api/stream`);
+        es.addEventListener("open", () => setConn(true));
+        es.onerror = () => setConn(false);
+
+        es.addEventListener("patients", (e) => { patients = JSON.parse(e.data); renderPatients(); renderChips(); renderAssign(); renderSessions(); });
+        es.addEventListener("patient", (e) => {
+          const p = JSON.parse(e.data);
+          const idx = patients.findIndex((x) => x.id === p.id);
+          if (idx >= 0) patients[idx] = p; else patients.push(p);
+          renderPatients(); renderAssign(); renderSessions();
+        });
+        es.addEventListener("patientDeleted", (e) => {
+          const { patientId } = JSON.parse(e.data);
+          patients = patients.filter((p) => p.id !== patientId);
+          if (filterMode === patientId) filterMode = "all";
+          renderPatients(); renderChips(); renderAssign(); renderSessions();
+        });
+        es.addEventListener("assigned", (e) => {
+          const { sessionId, patientId } = JSON.parse(e.data);
+          applyAssignment(sessionId, patientId);
+        });
+
+        es.addEventListener("sessions", (e) => {
+          sessions = JSON.parse(e.data).sort((a, b) => b.createdAt - a.createdAt);
+          renderSessions(); renderPatients();
+          if (liveMode && !selectedId && sessions.length) selectSession(sessions[0].id);
+        });
+        es.addEventListener("session", (e) => {
+          upsertSummary(JSON.parse(e.data));
+          renderSessions(); renderPatients();
+          if (liveMode) selectSession(JSON.parse(e.data).id);
+        });
+        es.addEventListener("point", (e) => {
+          const p = JSON.parse(e.data);
+          const sum = sessions.find((s) => s.id === p.sessionId);
+          if (sum) { sum.pointCount++; sum.lastAt = p.t; }
+          if (p.sessionId === selectedId && current) {
+            const np = { x: p.x, y: p.y, t: p.t };
+            if (p.hr) np.hr = p.hr;
+            current.points.push(np);
+            updateStats(); draw(); el("hint").style.display = "none";
+          }
+          renderSessions();
+        });
+        es.addEventListener("waypoint", (e) => {
+          const ev = JSON.parse(e.data);
+          const sum = sessions.find((s) => s.id === ev.sessionId);
+          if (sum) sum.reachedCount = (sum.reachedCount || 0) + 1;
+          if (ev.sessionId === selectedId && current) {
+            if (!current.events) current.events = [];
+            if (!current.events.some((x) => x.n === ev.n)) current.events.push({ n: ev.n, t: ev.t, elapsedMs: ev.elapsedMs, splitMs: ev.splitMs });
+            updateStats(); renderGameStats(); draw();
+          }
+          renderSessions();
+        });
+        es.addEventListener("deleted", (e) => {
+          const { sessionId } = JSON.parse(e.data);
+          sessions = sessions.filter((s) => s.id !== sessionId);
+          if (selectedId === sessionId) { selectedId = null; current = null; updateStats(); renderGameStats(); renderAssign(); draw(); }
+          renderSessions(); renderPatients();
+        });
+      }
+      function setConn(ok) {
+        el("connDot").classList.toggle("on", ok);
+        el("connTxt").textContent = ok ? "connected" : "disconnected";
+      }
+
+      // ---------- Stats ----------
+      function pathDistance(pts) { let d = 0; for (let i = 1; i < pts.length; i++) d += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); return d; }
+      function updateStats() {
+        if (!current) {
+          el("sName").textContent = "No session selected"; el("sPos").textContent = "—";
+          el("sCount").textContent = "0"; el("sDist").innerHTML = '0 <small>m</small>'; el("sProg").textContent = "—";
+          return;
+        }
+        const n = sessions.findIndex((s) => s.id === current.id);
+        el("sName").textContent = n >= 0 ? "Session " + (sessions.length - n) : "Session";
+        const pts = current.points;
+        el("sCount").textContent = pts.length;
+        el("sDist").innerHTML = pathDistance(pts).toFixed(1) + ' <small>m</small>';
+        el("sPos").textContent = pts.length ? `${pts[pts.length - 1].x.toFixed(2)}, ${pts[pts.length - 1].y.toFixed(2)}` : "—";
+        const total = (current.waypoints && current.waypoints.length) || 0;
+        const reached = (current.events && current.events.length) || 0;
+        el("sProg").textContent = total ? `${reached} / ${total}` : "—";
+        // heart rate
+        const withHr = pts.filter((p) => p.hr > 0);
+        if (withHr.length) {
+          const cur = withHr[withHr.length - 1].hr;
+          const avg = Math.round(withHr.reduce((s, p) => s + p.hr, 0) / withHr.length);
+          el("sHr").innerHTML = `${cur} <small>bpm · avg ${avg}</small>`;
+        } else {
+          el("sHr").innerHTML = '— <small>bpm</small>';
+        }
+      }
+
+      // ---------- Waypoint game ----------
+      function waypointState(n) {
+        const events = (current && current.events) || [];
+        if (events.some((e) => e.n === n)) return "reached";
+        return n === events.length + 1 ? "target" : "upcoming";
+      }
+      function stateColor(state) { return state === "reached" ? "#16a34a" : state === "target" ? "#f59e0b" : "#94a3b8"; }
+
+      function renderGameStats() {
+        const panel = el("gamePanel");
+        const wps = (current && current.waypoints) || [];
+        if (!wps.length) { panel.classList.add("hidden"); return; }
+        panel.classList.remove("hidden");
+        const events = (current.events || []).slice().sort((a, b) => a.n - b.n);
+        const total = wps.length, reached = events.length;
+        el("gpProg").innerHTML = `${reached}<small> / ${total}</small>`;
+        el("gpBar").style.width = (total ? (reached / total) * 100 : 0) + "%";
+        if (reached >= total) {
+          const t = events.length ? events[events.length - 1].elapsedMs : 0;
+          el("gpNext").innerHTML = `<b style="color:var(--reached)">✓ Course complete</b> · ${fmtMs(t)}`;
+        } else {
+          const nt = reached + 1;
+          el("gpNext").innerHTML = `Go to <span class="gp-chip" style="background:#f59e0b">${nt}</span> next`;
+        }
+        const byN = {}; events.forEach((e) => (byN[e.n] = e));
+        let rows = "";
+        for (let n = 1; n <= total; n++) {
+          const st = waypointState(n), c = stateColor(st), e = byN[n];
+          const time = e ? fmtMs(e.elapsedMs) : st === "target" ? "…" : "";
+          const split = e ? "+" + fmtMs(e.splitMs) : "";
+          rows += `<tr><td class="n"><span class="dotn" style="background:${c}">${n}</span></td><td>${time}</td><td style="color:var(--muted)">${split}</td></tr>`;
+        }
+        el("gpTable").innerHTML = `<table><thead><tr><th>#</th><th>Time</th><th>Split</th></tr></thead><tbody>${rows}</tbody></table>`;
+      }
+
+      // ---------- Canvas ----------
+      const cv = el("cv"); const ctx = cv.getContext("2d");
+      let DPR = window.devicePixelRatio || 1;
+      function resize() { DPR = window.devicePixelRatio || 1; cv.width = cv.clientWidth * DPR; cv.height = cv.clientHeight * DPR; draw(); }
+      window.addEventListener("resize", resize);
+
+      function computeView() {
+        const bw = (current && current.boardWidth) || 2, bh = (current && current.boardHeight) || 2;
+        let minX = -bw / 2, maxX = bw / 2, minY = -bh / 2, maxY = bh / 2;
+        if (current) for (const p of current.points) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+        if (current) for (const w of current.waypoints || []) { minX = Math.min(minX, w.x); maxX = Math.max(maxX, w.x); minY = Math.min(minY, w.y); maxY = Math.max(maxY, w.y); }
+        const pad = 0.6; minX -= pad; maxX += pad; minY -= pad; maxY += pad;
+        const worldW = maxX - minX, worldH = maxY - minY, W = cv.width, H = cv.height;
+        const scale = Math.min(W / worldW, H / worldH);
+        const offX = (W - worldW * scale) / 2 - minX * scale;
+        const offY = (H - worldH * scale) / 2 - minY * scale;
+        return { scale, sx: (x) => x * scale + offX, sy: (y) => H - (y * scale + offY) };
+      }
+
+      function draw() {
+        const W = cv.width, H = cv.height;
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#f7f9fc"; ctx.fillRect(0, 0, W, H);
+        if (!current) return;
+        const v = computeView();
+
+        // grid
+        ctx.lineWidth = 1 * DPR; ctx.strokeStyle = "#e6ebf2";
+        const bw = current.boardWidth, bh = current.boardHeight;
+        const g0 = Math.floor(-Math.max(bw, bh)) - 2, g1 = Math.ceil(Math.max(bw, bh)) + 2;
+        for (let gx = g0; gx <= g1; gx++) { ctx.beginPath(); ctx.moveTo(v.sx(gx), 0); ctx.lineTo(v.sx(gx), H); ctx.stroke(); }
+        for (let gy = g0; gy <= g1; gy++) { ctx.beginPath(); ctx.moveTo(0, v.sy(gy)); ctx.lineTo(W, v.sy(gy)); ctx.stroke(); }
+
+        // board
+        const bx = v.sx(-bw / 2), by = v.sy(bh / 2), bw2 = bw * v.scale, bh2 = bh * v.scale;
+        ctx.fillStyle = "rgba(37,99,235,0.05)"; ctx.fillRect(bx, by, bw2, bh2);
+        ctx.lineWidth = 2.5 * DPR; ctx.strokeStyle = "#2563eb"; ctx.strokeRect(bx, by, bw2, bh2);
+
+        // origin
+        ctx.fillStyle = "#cbd5e1"; ctx.beginPath(); ctx.arc(v.sx(0), v.sy(0), 3 * DPR, 0, 7); ctx.fill();
+
+        // waypoints
+        const wps = current.waypoints || [];
+        const tilePx = Math.max(18 * DPR, 0.32 * v.scale), pulse = 0.5 + 0.5 * Math.sin(Date.now() / 300);
+        for (const w of wps) {
+          const st = waypointState(w.n), col = stateColor(st), cx = v.sx(w.x), cy = v.sy(w.y), half = tilePx / 2;
+          if (st === "target") {
+            ctx.strokeStyle = col; ctx.lineWidth = 2 * DPR; ctx.globalAlpha = 0.35 + 0.5 * pulse;
+            const r = half + (5 + 5 * pulse) * DPR; ctx.strokeRect(cx - r, cy - r, r * 2, r * 2); ctx.globalAlpha = 1;
+          }
+          ctx.fillStyle = col + "26"; ctx.fillRect(cx - half, cy - half, tilePx, tilePx);
+          ctx.strokeStyle = col; ctx.lineWidth = (st === "upcoming" ? 2 : 3) * DPR; ctx.strokeRect(cx - half, cy - half, tilePx, tilePx);
+          ctx.font = `800 ${Math.round(tilePx * 0.55)}px -apple-system, "Segoe UI", sans-serif`;
+          ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          ctx.lineWidth = 3 * DPR; ctx.strokeStyle = "#ffffff"; ctx.strokeText(String(w.n), cx, cy + DPR);
+          ctx.fillStyle = col; ctx.fillText(String(w.n), cx, cy + DPR);
+        }
+
+        const pts = current.points; if (!pts.length) return;
+
+        // path
+        ctx.lineWidth = 3 * DPR; ctx.lineJoin = "round"; ctx.lineCap = "round";
+        const grad = ctx.createLinearGradient(0, 0, W, H);
+        grad.addColorStop(0, "#2563eb"); grad.addColorStop(1, "#0d9488");
+        ctx.strokeStyle = grad; ctx.beginPath(); ctx.moveTo(v.sx(pts[0].x), v.sy(pts[0].y));
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(v.sx(pts[i].x), v.sy(pts[i].y));
+        ctx.stroke();
+
+        // start
+        ctx.fillStyle = "#0d9488"; ctx.beginPath(); ctx.arc(v.sx(pts[0].x), v.sy(pts[0].y), 5 * DPR, 0, 7); ctx.fill();
+
+        // current
+        const last = pts[pts.length - 1], live = isLiveSession({ lastAt: last.t });
+        const cx = v.sx(last.x), cy = v.sy(last.y);
+        ctx.fillStyle = live ? "#16a34a" : "#2563eb";
+        ctx.beginPath(); ctx.arc(cx, cy, 7 * DPR, 0, 7); ctx.fill();
+        ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 3 * DPR;
+        ctx.beginPath(); ctx.arc(cx, cy, 7 * DPR, 0, 7); ctx.stroke();
+        ctx.strokeStyle = live ? "rgba(22,163,74,0.35)" : "rgba(37,99,235,0.3)"; ctx.lineWidth = 2 * DPR;
+        ctx.beginPath(); ctx.arc(cx, cy, 12 * DPR, 0, 7); ctx.stroke();
+
+        // heart-rate label next to the current position
+        if (last.hr > 0) {
+          ctx.font = `700 ${13 * DPR}px -apple-system, "Segoe UI", sans-serif`;
+          ctx.textAlign = "left"; ctx.textBaseline = "middle";
+          const label = "♥ " + last.hr;
+          const lx = cx + 16 * DPR, ly = cy - 14 * DPR;
+          ctx.lineWidth = 3 * DPR; ctx.strokeStyle = "#ffffff"; ctx.strokeText(label, lx, ly);
+          ctx.fillStyle = "#e11d48"; ctx.fillText(label, lx, ly);
+        }
+      }
+
+      function escapeHtml(s) { return (s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+      // ---------- Wire up ----------
+      el("addPatientBtn").onclick = openModal;
+      el("cancelPatient").onclick = closeModal;
+      el("savePatient").onclick = savePatient;
+      el("modalBg").onclick = (e) => { if (e.target === el("modalBg")) closeModal(); };
+      el("pName").addEventListener("keydown", (e) => { if (e.key === "Enter") savePatient(); });
+      el("patientSearch").addEventListener("input", (e) => { patientQuery = e.target.value; renderPatients(); });
+      el("sessionSearch").addEventListener("input", (e) => { sessionQuery = e.target.value; renderSessions(); });
+      el("assignSelect").addEventListener("change", (e) => { if (current) assignSession(current.id, e.target.value); });
+      el("liveToggle").addEventListener("change", (e) => { liveMode = e.target.checked; if (liveMode && sessions.length) selectSession(sessions[0].id); });
+
+      renderChips();
+      resize();
+      connectStream();
+      setInterval(() => { renderSessions(); }, 3000);
+      function animate() {
+        if (current && (current.waypoints || []).length && (current.events || []).length < current.waypoints.length) draw();
+        requestAnimationFrame(animate);
+      }
+      requestAnimationFrame(animate);
+    </script>
+  </body>
+</html>

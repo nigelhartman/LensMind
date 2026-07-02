@@ -1,0 +1,13 @@
+{
+  "name": "spatialcognition-backend",
+  "version": "1.0.0",
+  "description": "Receives top-down position from the SpatialCognition Spectacles lens and visualizes it live in the browser.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "license": "MIT"
+}

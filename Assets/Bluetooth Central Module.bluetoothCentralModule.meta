@@ -1,0 +1,16 @@
+- !<AssetImportMetadata/445eb043-b1d1-4bfd-bb95-cb1497537ec3>
+  ImportedAssetIds:
+    BluetoothCentralModule: !<reference> b38e0ccc-0533-473d-8823-0532d12f0cc9
+  ImporterName: BluetoothCentralModuleImporter
+  PrimaryAsset: !<reference> b38e0ccc-0533-473d-8823-0532d12f0cc9
+  PackageType: NotAPackage
+  LegacyPackagePolicy: ~
+  ExtraData:
+    {}
+  AssetDataMap:
+    {}
+  DependentFiles:
+    []
+  ImporterSettings: !<AssetImporterSettings>
+    {}
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000

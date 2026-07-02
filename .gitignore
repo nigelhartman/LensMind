@@ -1,0 +1,11 @@
+# Lens Studio generated cache (large, regenerable)
+/Cache/
+
+# Lens Studio lock files
+*.lock
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
