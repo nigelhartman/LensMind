@@ -20,6 +20,7 @@
  */
 
 const http = require("http");
+const https = require("https");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -27,6 +28,59 @@ const crypto = require("crypto");
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, "data");
 const PUBLIC_DIR = path.join(__dirname, "public");
+
+// ---------------------------------------------------------------------------
+// Minimal .env loader (no dependency) + OpenRouter (Gemini) client
+// ---------------------------------------------------------------------------
+const ENV = {};
+try {
+  const raw = fs.readFileSync(path.join(__dirname, ".env"), "utf8");
+  for (const line of raw.split("\n")) {
+    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (m) ENV[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  }
+} catch {
+  /* no .env */
+}
+const OPENROUTER_KEY = process.env.OPENROUTER || ENV.OPENROUTER || "";
+const AI_MODEL = "google/gemini-3.5-flash";
+
+function callOpenRouter(messages) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify({ model: AI_MODEL, messages });
+    const req = https.request(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + OPENROUTER_KEY,
+          "Content-Length": Buffer.byteLength(payload),
+          "HTTP-Referer": "http://localhost:" + PORT,
+          "X-Title": "LensMind",
+        },
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (c) => (data += c));
+        res.on("end", () => {
+          try {
+            const j = JSON.parse(data);
+            if (res.statusCode !== 200) {
+              return reject(new Error((j.error && j.error.message) || "HTTP " + res.statusCode));
+            }
+            resolve((j.choices && j.choices[0] && j.choices[0].message.content) || "");
+          } catch (e) {
+            reject(new Error("Bad AI response: " + data.slice(0, 200)));
+          }
+        });
+      }
+    );
+    req.on("error", reject);
+    req.write(payload);
+    req.end();
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Storage
@@ -82,6 +136,7 @@ function summary(s) {
     patientId: s.patientId || null,
     startedAt: s.startedAt || null,
     endedAt: s.endedAt || null,
+    hasAnalysis: !!s.analysis,
     lastAt: pts.length ? pts[pts.length - 1].t : s.createdAt,
   };
 }
@@ -111,6 +166,55 @@ function loadPatients() {
     /* no file yet */
   }
   console.log(`Loaded ${patients.size} patient(s) from disk.`);
+}
+
+function ageYears(bd) {
+  if (!bd) return null;
+  const d = new Date(bd);
+  if (isNaN(d)) return null;
+  const n = new Date();
+  let a = n.getFullYear() - d.getFullYear();
+  const m = n.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && n.getDate() < d.getDate())) a--;
+  return a;
+}
+
+/** Compact raw-data object describing a finished run, for the AI prompt. */
+function buildAnalysisData(s) {
+  const start = s.startedAt || s.createdAt;
+  const end = s.endedAt || (s.points.length ? s.points[s.points.length - 1].t : start);
+  const traj = s.points.filter((p) => p.t >= start && (!s.endedAt || p.t <= s.endedAt));
+  let dist = 0;
+  for (let i = 1; i < traj.length; i++) {
+    dist += Math.hypot(traj[i].x - traj[i - 1].x, traj[i].y - traj[i - 1].y);
+  }
+  const hrs = s.points.filter((p) => p.hr > 0).map((p) => p.hr);
+  const hr = hrs.length
+    ? { minBpm: Math.min(...hrs), maxBpm: Math.max(...hrs), avgBpm: Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) }
+    : null;
+  // Optimal route = straight lines through the targets in order; efficiency ratio
+  // compares the actual walked distance to that ideal (1.0 = perfectly direct).
+  const wps = (s.waypoints || []).slice().sort((a, b) => a.n - b.n);
+  let optimal = 0;
+  for (let i = 1; i < wps.length; i++) {
+    optimal += Math.hypot(wps[i].x - wps[i - 1].x, wps[i].y - wps[i - 1].y);
+  }
+  const patient = s.patientId ? patients.get(s.patientId) : null;
+  return {
+    boardSizeMeters: { width: s.boardWidth, height: s.boardHeight },
+    numberOfTargets: s.waypoints ? s.waypoints.length : 0,
+    totalTimeSeconds: +((end - start) / 1000).toFixed(1),
+    totalDistanceMeters: +dist.toFixed(2),
+    optimalPathMeters: +optimal.toFixed(2),
+    pathEfficiencyRatio: optimal > 0 ? +(dist / optimal).toFixed(2) : null,
+    reaches: (s.events || []).map((e) => ({
+      target: e.n,
+      elapsedSeconds: +(e.elapsedMs / 1000).toFixed(1),
+      splitSeconds: +(e.splitMs / 1000).toFixed(1),
+    })),
+    heartRate: hr,
+    patient: patient ? { gender: patient.gender, ageYears: ageYears(patient.birthday) } : null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -444,6 +548,50 @@ const server = http.createServer(async (req, res) => {
     saveSession(session);
     broadcast("assigned", { sessionId: session.id, patientId: pid });
     return sendJson(res, 200, { ok: true, patientId: pid });
+  }
+
+  // ---- AI analysis (OpenRouter / Gemini) ----
+  const analyzeMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/analyze$/);
+  if (analyzeMatch && req.method === "POST") {
+    const session = sessions.get(analyzeMatch[1]);
+    if (!session) return sendJson(res, 404, { error: "Unknown session" });
+    const total = session.waypoints ? session.waypoints.length : 0;
+    const finished = total > 0 && session.events && session.events.length >= total;
+    if (!finished) return sendJson(res, 400, { error: "Session not finished yet" });
+    if (session.analysis) return sendJson(res, 200, { analysis: session.analysis, cached: true });
+    if (!OPENROUTER_KEY) return sendJson(res, 400, { error: "OPENROUTER key missing in backend/.env" });
+
+    const data = buildAnalysisData(session);
+    try {
+      const text = await callOpenRouter([
+        {
+          role: "system",
+          content: [
+            "You are an expert in visuospatial cognitive assessment. You know the Corsi Block-Tapping Task (a standard measure of visuospatial short-term / working memory) and its metrics — Block Span (longest correct sequence), Total Correct, and Total Score (Kessels et al., 2000) — and its normative literature.",
+            "",
+            "This app runs a related but DIFFERENT, room-scale test: a participant wearing AR glasses walks/runs to numbered floor targets in a fixed ascending order (1, 2, 3 ... N). Unlike the classic Corsi task, the sequence is visible and numbered and is executed by whole-body locomotion. It therefore probes spatial sequencing, route planning, navigation efficiency and processing speed under light physical load — NOT pure memory span. Interpret the data with that distinction; do not treat it as a literal Corsi span.",
+            "",
+            "Reference context (classic Corsi span, for loose qualitative framing only — never a direct comparison):",
+            "- Healthy adults: forward span ~5.7 blocks (young adults ~6.1; adults 50+ ~4.8).",
+            "- Alzheimer's disease: ~3.9 (moderate stage ~3.6); mild stages usually overlap with healthy.",
+            "",
+            "Data notes: pathEfficiencyRatio is actual distance / optimal straight-line route (1.0 = perfectly direct; higher = more wandering). Splits are seconds between consecutive targets. Heart rate reflects physical effort.",
+            "",
+            "TONE — very important: write as a measured, supportive expert. This is a screening/training tool, NOT a clinical diagnosis. Be cautious and PASSIVE: never state or imply the person is ill, cognitively impaired, or has dementia. Use hedged phrasing ('appears within a typical range', 'an area that may benefit from practice'). Where performance looks lower, mention benign explanations (unfamiliarity with the setup, fatigue, room size) and keep it encouraging.",
+            "",
+            "Write ~180 words max: (1) a brief expert summary of the outcome referencing the relevant measures (targets completed, sequencing speed via total time and splits, navigation efficiency, physical effort); (2) a cautious note on whether results appear good / within typical expectations; (3) two or three concrete, encouraging tips to improve. Plain language: a short paragraph plus a few bullets.",
+          ].join("\n"),
+        },
+        { role: "user", content: "Session data (JSON):\n" + JSON.stringify(data, null, 2) },
+      ]);
+      session.analysis = text;
+      saveSession(session);
+      console.log(`Session ${session.id}: AI analysis generated (${text.length} chars).`);
+      return sendJson(res, 200, { analysis: text });
+    } catch (e) {
+      console.error("AI analysis error:", e.message);
+      return sendJson(res, 502, { error: "AI request failed: " + e.message });
+    }
   }
 
   // ---- List sessions ----

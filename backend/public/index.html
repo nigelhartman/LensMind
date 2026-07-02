@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SpatialCognition — Movement Assessment</title>
+    <title>LensMind — Movement Assessment</title>
     <style>
       :root {
         --bg: #eef2f7;
@@ -199,6 +199,26 @@
       .tooltip .tt-k { color: #94a3b8; width: 58px; }
       .tooltip .tt-hr { color: #fb7185; font-weight: 700; }
 
+      canvas { cursor: grab; }
+      canvas.grabbing { cursor: grabbing; }
+      .view-hint {
+        position: absolute; top: 14px; left: 14px; font-size: 11px; color: var(--muted);
+        background: rgba(255,255,255,0.85); border: 1px solid var(--border); border-radius: 8px;
+        padding: 5px 9px; pointer-events: none;
+      }
+
+      .analyze-btn {
+        margin-top: 9px; width: 100%; border: 1px solid var(--border-strong); background: var(--surface);
+        color: var(--primary); border-radius: 8px; padding: 6px 8px; font-size: 12px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center; gap: 6px; transition: 0.12s;
+      }
+      .analyze-btn:hover:not(:disabled) { background: var(--primary-soft); border-color: var(--primary); }
+      .analyze-btn:disabled { color: var(--faint); background: var(--surface-2); cursor: not-allowed; }
+
+      .analysis-body { white-space: pre-wrap; line-height: 1.6; font-size: 14px; color: var(--text); max-height: 52vh; overflow: auto; }
+      .spinner { width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 16px auto; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
       /* Course panel */
       .game-panel {
         position: absolute; top: 16px; right: 16px; width: 264px; max-height: calc(100% - 32px);
@@ -251,7 +271,7 @@
           </svg>
         </div>
         <div>
-          <h1>SpatialCognition</h1>
+          <h1>LensMind</h1>
           <p>Movement Assessment</p>
         </div>
         <div class="conn"><span class="d" id="connDot"></span><span id="connTxt">connecting…</span></div>
@@ -310,6 +330,7 @@
       <div class="canvas-wrap">
         <canvas id="cv"></canvas>
         <div class="tooltip" id="tooltip"></div>
+        <div class="view-hint">Drag to pan · scroll to zoom · double-click to reset</div>
         <div class="hint" id="hint">Waiting for the lens to place a board…</div>
         <div class="game-panel hidden" id="gamePanel">
           <div class="gp-head">
@@ -322,6 +343,15 @@
         </div>
       </div>
     </main>
+
+    <!-- AI analysis modal -->
+    <div class="modal-bg" id="analysisBg">
+      <div class="modal" style="width: 460px">
+        <h3>AI Analysis</h3>
+        <div class="body"><div id="analysisContent" class="analysis-body"></div></div>
+        <div class="foot"><button class="btn" id="closeAnalysis">Close</button></div>
+      </div>
+    </div>
 
     <!-- Add patient modal -->
     <div class="modal-bg" id="modalBg">
@@ -356,6 +386,8 @@
       let patientQuery = "";
       let sessionQuery = "";
       let hoverData = []; // per-trajectory-point screen coords + hr/time/distance (for tooltip)
+      let view = { scale: 1, offX: 0, offY: 0 }; // current pan/zoom (device px)
+      let userInteracted = false; // once true, stop auto-fitting so pan/zoom sticks
 
       // ---------- Helpers ----------
       const AVATAR_COLORS = ["#2563eb", "#0d9488", "#7c3aed", "#db2777", "#ea580c", "#0891b2", "#4f46e5", "#059669"];
@@ -475,6 +507,7 @@
           const live = isLiveSession(s);
           const p = patientById(s.patientId);
           const color = p ? AVATAR_COLORS[hashIdx(p.id, AVATAR_COLORS.length)] : "#94a3b8";
+          const finished = !!s.endedAt || (s.waypointCount > 0 && s.reachedCount >= s.waypointCount);
           const div = document.createElement("div");
           div.className = "session" + (s.id === selectedId ? " active" : "");
           div.innerHTML =
@@ -483,9 +516,10 @@
             (p
               ? `<div class="ptag assigned"><span class="dot" style="background:${color}"></span>${escapeHtml(p.name)}</div>`
               : `<div class="ptag none"><span class="dot" style="background:${color}"></span>Unassigned</div>`) +
+            `<button class="analyze-btn" ${finished ? "" : "disabled"} title="${finished ? "AI summary of this run" : "Available once all numbers are reached"}">${s.hasAnalysis ? "★ View AI analysis" : "✨ Analyze (AI)"}</button>` +
             `<button class="del" title="Delete session">✕</button>`;
           div.onclick = (e) => {
-            if (e.target.classList.contains("del")) return;
+            if (e.target.classList.contains("del") || e.target.classList.contains("analyze-btn")) return;
             liveMode = false; el("liveToggle").checked = false;
             selectSession(s.id);
           };
@@ -494,12 +528,15 @@
             if (!confirm("Delete this session?")) return;
             await fetch(`${API}/api/sessions/${s.id}`, { method: "DELETE" });
           };
+          const ab = div.querySelector(".analyze-btn");
+          ab.onclick = (e) => { e.stopPropagation(); if (finished) openAnalysis(s.id); };
           box.appendChild(div);
         });
       }
 
       async function selectSession(id) {
         selectedId = id;
+        userInteracted = false; // re-fit the view for the newly opened session
         renderSessions();
         const r = await fetch(`${API}/api/sessions/${id}`);
         if (!r.ok) { current = null; updateStats(); renderGameStats(); renderAssign(); draw(); return; }
@@ -704,16 +741,20 @@
       window.addEventListener("resize", resize);
 
       function computeView() {
-        const bw = (current && current.boardWidth) || 2, bh = (current && current.boardHeight) || 2;
-        let minX = -bw / 2, maxX = bw / 2, minY = -bh / 2, maxY = bh / 2;
-        if (current) for (const p of current.points) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
-        if (current) for (const w of current.waypoints || []) { minX = Math.min(minX, w.x); maxX = Math.max(maxX, w.x); minY = Math.min(minY, w.y); maxY = Math.max(maxY, w.y); }
-        const pad = 0.6; minX -= pad; maxX += pad; minY -= pad; maxY += pad;
-        const worldW = maxX - minX, worldH = maxY - minY, W = cv.width, H = cv.height;
-        const scale = Math.min(W / worldW, H / worldH);
-        const offX = (W - worldW * scale) / 2 - minX * scale;
-        const offY = (H - worldH * scale) / 2 - minY * scale;
-        return { scale, sx: (x) => x * scale + offX, sy: (y) => H - (y * scale + offY) };
+        const W = cv.width, H = cv.height;
+        if (!userInteracted) {
+          // Auto-fit board + points + waypoints until the user pans/zooms.
+          const bw = (current && current.boardWidth) || 2, bh = (current && current.boardHeight) || 2;
+          let minX = -bw / 2, maxX = bw / 2, minY = -bh / 2, maxY = bh / 2;
+          if (current) for (const p of current.points) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+          if (current) for (const w of current.waypoints || []) { minX = Math.min(minX, w.x); maxX = Math.max(maxX, w.x); minY = Math.min(minY, w.y); maxY = Math.max(maxY, w.y); }
+          const pad = 0.6; minX -= pad; maxX += pad; minY -= pad; maxY += pad;
+          const worldW = maxX - minX, worldH = maxY - minY;
+          view.scale = Math.min(W / worldW, H / worldH);
+          view.offX = (W - worldW * view.scale) / 2 - minX * view.scale;
+          view.offY = (H - worldH * view.scale) / 2 - minY * view.scale;
+        }
+        return { scale: view.scale, sx: (x) => x * view.scale + view.offX, sy: (y) => H - (y * view.scale + view.offY) };
       }
 
       function draw() {
@@ -813,9 +854,20 @@
       el("assignSelect").addEventListener("change", (e) => { if (current) assignSession(current.id, e.target.value); });
       el("liveToggle").addEventListener("change", (e) => { liveMode = e.target.checked; if (liveMode && sessions.length) selectSession(sessions[0].id); });
 
-      // Hover over the trajectory: show heart rate, time and distance at that point.
+      // Canvas interaction: drag to pan, scroll to zoom, double-click to reset,
+      // and hover (when not dragging) to inspect a trajectory point.
       const tooltip = el("tooltip");
+      let dragging = false;
+      cv.addEventListener("mousedown", () => { dragging = true; cv.classList.add("grabbing"); tooltip.style.display = "none"; });
+      window.addEventListener("mouseup", () => { dragging = false; cv.classList.remove("grabbing"); });
       cv.addEventListener("mousemove", (e) => {
+        if (dragging) {
+          view.offX += e.movementX * DPR;
+          view.offY -= e.movementY * DPR;
+          userInteracted = true;
+          draw();
+          return;
+        }
         if (!hoverData.length) { tooltip.style.display = "none"; return; }
         const mx = e.offsetX * DPR, my = e.offsetY * DPR;
         let best = null, bestD = Infinity;
@@ -838,6 +890,37 @@
         }
       });
       cv.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+      cv.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        const H = cv.height;
+        const factor = Math.exp(-e.deltaY * 0.0015);
+        const mx = e.offsetX * DPR, wy = H - e.offsetY * DPR;
+        view.offX = mx - (mx - view.offX) * factor;
+        view.offY = wy - (wy - view.offY) * factor;
+        view.scale *= factor;
+        userInteracted = true;
+        draw();
+      }, { passive: false });
+      cv.addEventListener("dblclick", () => { userInteracted = false; draw(); });
+
+      // AI analysis modal
+      const analysisBg = el("analysisBg");
+      el("closeAnalysis").onclick = () => analysisBg.classList.remove("open");
+      analysisBg.onclick = (e) => { if (e.target === analysisBg) analysisBg.classList.remove("open"); };
+      async function openAnalysis(id) {
+        analysisBg.classList.add("open");
+        el("analysisContent").innerHTML =
+          '<div class="spinner"></div><div style="text-align:center;color:var(--muted)">Analyzing session…</div>';
+        try {
+          const r = await fetch(`${API}/api/sessions/${id}/analyze`, { method: "POST" });
+          const j = await r.json();
+          if (!r.ok) throw new Error(j.error || "Request failed");
+          el("analysisContent").textContent = j.analysis;
+        } catch (e) {
+          el("analysisContent").innerHTML = `<div style="color:var(--danger)">${escapeHtml(e.message)}</div>`;
+        }
+      }
+      window.__openAnalysis = openAnalysis;
       setInterval(updateTimerDisplay, 250);
 
       renderChips();

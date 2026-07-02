@@ -33,19 +33,27 @@
     boardRoot: false
     boardVisuals: false
     boardWidthMeters: false
+    borderMaterial: false
     camera: false
     enableHeartRate: false
     endSound: false
     enterSound: false
+    heartIcon: false
+    heartIconObject: false
+    heartText: false
     hrDeviceName: false
+    iconMaterial: false
     maxNumber: false
     minSpacingMeters: false
     overlayText: false
     reachRadiusMeters: false
-    reachSound: false
+    reachSound1: false
+    reachSound2: false
+    reachSound3: false
     sendIntervalSeconds: false
-    startSound: false
     tileSizeMeters: false
+    timerIcon: false
+    timerIconObject: false
     timerText: false
     waypointsParent: false
   ScriptTypesHidden:
@@ -73,12 +81,20 @@
       tileSizeMeters: 0.300000
       reachRadiusMeters: 0.400000
       minSpacingMeters: 0.600000
-      startSound: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
       enterSound: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
-      reachSound: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      reachSound1: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      reachSound2: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      reachSound3: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
       endSound: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
       timerText: !<reference.Text> 00000000-0000-0000-0000-000000000000
       overlayText: !<reference.Text> 00000000-0000-0000-0000-000000000000
+      heartText: !<reference.Text> 00000000-0000-0000-0000-000000000000
+      timerIcon: !<reference.Texture> 00000000-0000-0000-0000-000000000000
+      heartIcon: !<reference.Texture> 00000000-0000-0000-0000-000000000000
+      timerIconObject: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      heartIconObject: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      iconMaterial: !<reference.Material> 00000000-0000-0000-0000-000000000000
+      borderMaterial: !<reference.Material> 00000000-0000-0000-0000-000000000000
   ScriptTypes:
     -
       {}
@@ -99,9 +115,17 @@
     - '// @input float tileSizeMeters = 0.3 {"hint":"Tile size in meters (edge length of each numbered box)."}'
     - '// @input float reachRadiusMeters = 0.4 {"hint":"How close (meters) the player must get to a box to count as reached."}'
     - "// @input float minSpacingMeters = 0.6 {\"hint\":\"Minimum spacing between box centers in meters (so they don't overlap).\"}"
-    - '// @input Asset.AudioTrackAsset startSound {"hint":"Sound played right after the board is placed (start)."}'
     - '// @input Asset.AudioTrackAsset enterSound {"hint":"Sound played when the user steps into the board (enter)."}'
-    - '// @input Asset.AudioTrackAsset reachSound {"hint":"Sound played each time a number is reached successfully."}'
-    - '// @input Asset.AudioTrackAsset endSound {"hint":"Sound played when the final number is reached (end)."}'
+    - '// @input Asset.AudioTrackAsset reachSound1 {"hint":"Reach sound option 1 - one of the three plays at random each time a number is reached."}'
+    - '// @input Asset.AudioTrackAsset reachSound2 {"hint":"Reach sound option 2 - one of the three plays at random each time a number is reached."}'
+    - '// @input Asset.AudioTrackAsset reachSound3 {"hint":"Reach sound option 3 - one of the three plays at random each time a number is reached."}'
+    - '// @input Asset.AudioTrackAsset endSound {"hint":"Sound played when the final number is reached (end) - different from the reach sounds."}'
     - '// @input Component.Text timerText {"hint":"HUD Text that shows the run timer (TimerText under the Camera)."}'
     - '// @input Component.Text overlayText {"hint":"HUD Text used for instructions/overlays (OverlayText under the Camera)."}'
+    - '// @input Component.Text heartText {"hint":"HUD Text showing the live heart rate, above the timer (HeartText under the Camera)."}'
+    - '// @input Asset.Texture timerIcon {"hint":"Icon image shown to the left of the timer."}'
+    - '// @input Asset.Texture heartIcon {"hint":"Icon image shown to the left of the heart rate."}'
+    - '// @input SceneObject timerIconObject {"hint":"Plane object that displays the timer icon (TimerIcon under the Camera)."}'
+    - '// @input SceneObject heartIconObject {"hint":"Plane object that displays the heart-rate icon (HeartIcon under the Camera)."}'
+    - '// @input Asset.Material iconMaterial {"hint":"Unlit material used to render the HUD icons (IconUnlit)."}'
+    - '// @input Asset.Material borderMaterial {"hint":"Board border material (BorderLit) - tinted blue at runtime to match the web app."}'

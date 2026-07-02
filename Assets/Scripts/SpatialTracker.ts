@@ -30,6 +30,7 @@ const COLOR_REACHED = new vec4(0.15, 0.85, 0.45, 1.0); // already reached (green
 const MSG_FIRST = "The experience starts\nwhen you step inside the box";
 const MSG_COMPLETE = "Complete!\nStep out of the box to play again";
 const MSG_REPEAT = "Step inside the box\nto start the test";
+const MSG_STEP_OUT = "Step out of the box first";
 
 interface Waypoint {
   object: SceneObject;
@@ -142,6 +143,41 @@ export class SpatialTracker extends BaseScriptComponent {
   @hint("HUD Text used for instructions/overlays (OverlayText under the Camera).")
   overlayText: Text;
 
+  @input
+  @allowUndefined
+  @hint("HUD Text showing the live heart rate, above the timer (HeartText under the Camera).")
+  heartText: Text;
+
+  @input
+  @allowUndefined
+  @hint("Icon image shown to the left of the timer.")
+  timerIcon: Texture;
+
+  @input
+  @allowUndefined
+  @hint("Icon image shown to the left of the heart rate.")
+  heartIcon: Texture;
+
+  @input
+  @allowUndefined
+  @hint("Plane object that displays the timer icon (TimerIcon under the Camera).")
+  timerIconObject: SceneObject;
+
+  @input
+  @allowUndefined
+  @hint("Plane object that displays the heart-rate icon (HeartIcon under the Camera).")
+  heartIconObject: SceneObject;
+
+  @input
+  @allowUndefined
+  @hint("Unlit material used to render the HUD icons (IconUnlit).")
+  iconMaterial: Material;
+
+  @input
+  @allowUndefined
+  @hint("Board border material (BorderLit) - tinted blue at runtime to match the web app.")
+  borderMaterial: Material;
+
   private boardTransform: Transform;
   private cameraTransform: Transform;
 
@@ -188,6 +224,11 @@ export class SpatialTracker extends BaseScriptComponent {
     this.initHud();
     this.audio = this.getSceneObject().createComponent("Component.AudioComponent") as AudioComponent;
     this.isEditor = global.deviceInfoSystem.isEditor();
+    if (this.borderMaterial) {
+      // Web app board color (#2563eb). Set at runtime because editing the
+      // material's baseColor at author time did not stick.
+      this.borderMaterial.mainPass.baseColor = new vec4(0.145, 0.388, 0.922, 1.0);
+    }
     if (this.enableHeartRate) {
       this.startHeartRate();
     }
@@ -197,15 +238,51 @@ export class SpatialTracker extends BaseScriptComponent {
   /** Place the head-locked HUD texts in front of the camera and clear them. */
   private initHud() {
     if (this.timerText) {
-      this.timerText.getSceneObject().getTransform().setLocalPosition(new vec3(0, 22, -100));
-      this.timerText.size = 72;
-      this.timerText.text = "";
+      // Left-aligned so the number starts right of its icon (with a margin).
+      this.timerText.horizontalAlignment = HorizontalAlignment.Left;
+      this.timerText.getSceneObject().getTransform().setLocalPosition(new vec3(24, 19, -100));
+      this.timerText.size = 144;
+      this.timerText.text = "0.0";
     }
+    if (this.heartText) {
+      // Heart rate sits right on top of the timer.
+      this.heartText.horizontalAlignment = HorizontalAlignment.Left;
+      this.heartText.getSceneObject().getTransform().setLocalPosition(new vec3(24, 28, -100));
+      this.heartText.size = 144;
+      this.heartText.text = "...";
+    }
+    this.setupIcon(this.timerIconObject, this.timerIcon, 13, 19);
+    this.setupIcon(this.heartIconObject, this.heartIcon, 13, 28);
     if (this.overlayText) {
+      // Instruction/"todos" overlay: 3x the previous size.
       this.overlayText.getSceneObject().getTransform().setLocalPosition(new vec3(0, -8, -100));
-      this.overlayText.size = 44;
+      this.overlayText.size = 132;
       this.setOverlay("");
     }
+  }
+
+  /** Assign an icon texture to a HUD plane, position it left of its text. */
+  private setupIcon(obj: SceneObject, tex: Texture, x: number, y: number) {
+    if (!obj) {
+      return;
+    }
+    if (!tex || !this.iconMaterial) {
+      obj.enabled = false; // no icon assigned
+      return;
+    }
+    const rmv = obj.getComponent("Component.RenderMeshVisual") as RenderMeshVisual;
+    if (rmv) {
+      const mat = this.iconMaterial.clone();
+      mat.mainPass.baseTex = tex;
+      mat.mainPass.twoSided = true; // render regardless of which way the plane faces
+      rmv.mainMaterial = mat;
+    }
+    const t = obj.getTransform();
+    // The Plane primitive lies flat (horizontal); rotate it upright to face the camera.
+    t.setLocalRotation(quat.fromEulerAngles(Math.PI / 2, 0, 0));
+    t.setLocalPosition(new vec3(x, y, -100));
+    t.setLocalScale(new vec3(4.5, 4.5, 4.5));
+    obj.enabled = true;
   }
 
   // -------------------------------------------------------------------------
@@ -261,6 +338,13 @@ export class SpatialTracker extends BaseScriptComponent {
       const sourceMat: Material = this.baseTileMaterial || (rmv ? rmv.mainMaterial : null);
       if (rmv && sourceMat) {
         mat = sourceMat.clone();
+        // Matte, non-metallic finish so the lit tiles read cleanly (ignored by unlit).
+        try {
+          mat.mainPass.roughness = 0.6;
+          mat.mainPass.metallic = 0.0;
+        } catch (e) {
+          // Unlit material has no roughness/metallic - fine.
+        }
         rmv.mainMaterial = mat;
       }
 
@@ -294,6 +378,9 @@ export class SpatialTracker extends BaseScriptComponent {
       return;
     }
 
+    // Heart rate updates continuously, independent of the game state.
+    this.updateHeartText();
+
     // Detect the board being (re)placed: visuals turning on.
     const enabled = this.boardVisuals.enabled;
     if (enabled && !this.prevEnabled) {
@@ -307,7 +394,13 @@ export class SpatialTracker extends BaseScriptComponent {
 
     const inside = this.isInsideBoard();
 
-    if (this.state === "armed") {
+    if (this.state === "waitexit") {
+      // Placed while inside: wait for the user to leave, then prompt to enter.
+      if (!inside) {
+        this.state = "armed";
+        this.setOverlay(this.firstRun ? MSG_FIRST : MSG_REPEAT);
+      }
+    } else if (this.state === "armed") {
       // Timer + trajectory begin the moment the user is inside the board.
       if (inside) {
         this.onEnter();
@@ -368,12 +461,19 @@ export class SpatialTracker extends BaseScriptComponent {
   private armRun() {
     this.sessionId = null;
     this.timeAccum = this.sendIntervalSeconds; // send the first point promptly
-    this.state = "armed";
     this.enterTimeSec = 0;
     this.endElapsedSec = 0;
     this.spawnCourse();
     this.setTimer(0);
-    this.setOverlay(this.firstRun ? MSG_FIRST : MSG_REPEAT);
+    if (this.isInsideBoard()) {
+      // Board placed while the user is already standing inside: make them step
+      // out first, then prompt them to step back in (same flow as after finishing).
+      this.state = "waitexit";
+      this.setOverlay(MSG_STEP_OUT);
+    } else {
+      this.state = "armed";
+      this.setOverlay(this.firstRun ? MSG_FIRST : MSG_REPEAT);
+    }
     this.createSession();
   }
 
@@ -428,31 +528,46 @@ export class SpatialTracker extends BaseScriptComponent {
     print("[SpatialTracker] Spawned course with " + count + " boxes.");
   }
 
-  /** Rejection-sample non-overlapping (x, y) positions in meters within the board. */
+  /**
+   * Sample non-overlapping (x, y) positions in meters within the board.
+   * For each plate we take many candidates and keep the one that is FARTHEST
+   * from all already-placed plates (maximin). This never returns a blindly
+   * overlapping spot: if a fully-clear spot exists it is used, otherwise the
+   * least-overlapping one is chosen.
+   */
   private randomPositions(count: number): vec2[] {
     const marginM = this.tileSizeMeters / 2 + 0.15;
     const halfX = Math.max(0.1, this.boardWidthMeters / 2 - marginM);
     const halfY = Math.max(0.1, this.boardHeightMeters / 2 - marginM);
-    const minDist = this.minSpacingMeters;
+    // Plates must never touch: center spacing >= tile size, honoring Min Spacing.
+    const minDist = Math.max(this.minSpacingMeters, this.tileSizeMeters + 0.1);
     const out: vec2[] = [];
     for (let i = 0; i < count; i++) {
-      let placed: vec2 = null;
-      for (let attempt = 0; attempt < 200; attempt++) {
+      let best: vec2 = null;
+      let bestNearest = -1;
+      for (let attempt = 0; attempt < 400; attempt++) {
         const p = new vec2((Math.random() * 2 - 1) * halfX, (Math.random() * 2 - 1) * halfY);
-        let ok = true;
-        for (const q of out) {
-          if (Math.hypot(p.x - q.x, p.y - q.y) < minDist) {
-            ok = false;
-            break;
-          }
-        }
-        if (ok) {
-          placed = p;
+        if (out.length === 0) {
+          best = p;
           break;
         }
+        let nearest = Infinity;
+        for (const q of out) {
+          const d = Math.hypot(p.x - q.x, p.y - q.y);
+          if (d < nearest) {
+            nearest = d;
+          }
+        }
+        if (nearest >= minDist) {
+          best = p; // clear spot found - use it
+          break;
+        }
+        if (nearest > bestNearest) {
+          bestNearest = nearest; // remember the least-overlapping candidate
+          best = p;
+        }
       }
-      // Fallback: accept a possibly-close spot rather than fail.
-      out.push(placed || new vec2((Math.random() * 2 - 1) * halfX, (Math.random() * 2 - 1) * halfY));
+      out.push(best);
     }
     return out;
   }
@@ -507,10 +622,18 @@ export class SpatialTracker extends BaseScriptComponent {
     }
   }
 
+  /** Live heart rate: mock in Preview; "..." while connecting on device; BPM once read. */
+  private updateHeartText() {
+    if (!this.heartText) {
+      return;
+    }
+    this.heartText.text = this.currentHr > 0 ? "" + this.currentHr : "...";
+  }
+
   private formatTime(sec: number): string {
     if (sec < 0) sec = 0;
     if (sec < 60) {
-      return sec.toFixed(1) + "s";
+      return sec.toFixed(1);
     }
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
