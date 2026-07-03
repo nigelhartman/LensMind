@@ -30,7 +30,7 @@ const COLOR_REACHED = new vec4(0.15, 0.85, 0.45, 1.0); // already reached (green
 const MSG_OBSERVE = "Test starts soon\nStep back to observe the whole board";
 const MSG_WATCH = "Memorize the order";
 const MSG_GO = "Step inside and walk\nthe sequence in order";
-const MSG_COMPLETE = "Complete!\nStep out of the box to play again";
+const MSG_COMPLETE = "Complete!\nLeave the board to start a new test";
 
 interface Waypoint {
   object: SceneObject;
@@ -103,6 +103,10 @@ export class SpatialTracker extends BaseScriptComponent {
   @input
   @hint("Seconds to wait after placement (observe the board) before the sequence is shown.")
   observeDelaySeconds: number = 4.0;
+
+  @input
+  @hint("Seconds to step back / observe before a REPEAT test (after finishing and leaving the board).")
+  repeatObserveDelaySeconds: number = 10.0;
 
   @input
   @hint("Seconds each plate stays highlighted (orange) while the sequence is demonstrated.")
@@ -456,7 +460,7 @@ export class SpatialTracker extends BaseScriptComponent {
   // -------------------------------------------------------------------------
   private onBoardPlaced() {
     this.firstRun = true;
-    this.armRun();
+    this.armRun(this.observeDelaySeconds);
   }
 
   /**
@@ -464,7 +468,7 @@ export class SpatialTracker extends BaseScriptComponent {
    * backend session, then hold in the OBSERVE phase. The test does NOT start when
    * the user walks in during observe/highlight - only after the sequence is shown.
    */
-  private armRun() {
+  private armRun(observeDelay: number) {
     this.sessionId = null;
     this.timeAccum = this.sendIntervalSeconds; // send the first point promptly
     this.enterTimeSec = 0;
@@ -473,7 +477,7 @@ export class SpatialTracker extends BaseScriptComponent {
     this.spawnCourse();
     this.setTimer(0);
     this.state = "observe";
-    this.phaseTimer = getTime() + this.observeDelaySeconds;
+    this.phaseTimer = getTime() + observeDelay;
     this.setOverlay(MSG_OBSERVE);
     this.createSession();
   }
@@ -512,10 +516,10 @@ export class SpatialTracker extends BaseScriptComponent {
     this.reportStart();
   }
 
-  /** After finishing, stepping out arms a repeat run. */
+  /** After finishing, leaving the board arms a repeat run with the longer observe delay. */
   private onSteppedOutAfterFinish() {
     this.firstRun = false;
-    this.armRun();
+    this.armRun(this.repeatObserveDelaySeconds);
   }
 
   private spawnCourse() {

@@ -41,16 +41,20 @@
     heartIcon: false
     heartIconObject: false
     heartText: false
+    highlightSeconds: false
     hrDeviceName: false
     iconMaterial: false
-    maxNumber: false
     minSpacingMeters: false
+    observeDelaySeconds: false
     overlayText: false
+    plateCount: false
     reachRadiusMeters: false
     reachSound1: false
     reachSound2: false
     reachSound3: false
+    repeatObserveDelaySeconds: false
     sendIntervalSeconds: false
+    sequenceLength: false
     tileSizeMeters: false
     timerIcon: false
     timerIconObject: false
@@ -77,7 +81,11 @@
       enableHeartRate: true
       hrDeviceName: ""
       bluetoothModule: !<reference.BluetoothCentralModule> 00000000-0000-0000-0000-000000000000
-      maxNumber: !<float> 5.000000
+      plateCount: !<float> 9.000000
+      sequenceLength: !<float> 5.000000
+      observeDelaySeconds: !<float> 4.000000
+      repeatObserveDelaySeconds: !<float> 10.000000
+      highlightSeconds: !<float> 2.000000
       tileSizeMeters: 0.300000
       reachRadiusMeters: 0.400000
       minSpacingMeters: 0.600000
@@ -111,8 +119,12 @@
     - '// @input bool enableHeartRate = true {"hint":"Connect to a Bluetooth heart-rate monitor (e.g. Garmin in Broadcast HR mode) and send BPM with each position. In Lens Studio Preview, mock BPM is sent instead."}'
     - "// @input string hrDeviceName {\"hint\":\"Optional Bluetooth device-name filter (your Garmin's broadcast name). Leave empty to accept the first heart-rate device found.\"}"
     - '// @input Asset.BluetoothCentralModule bluetoothModule {"hint":"(Optional) Bluetooth Central Module asset. If assigned it is used instead of the built-in module - add one via the Asset Browser only if the built-in require fails on your device."}'
-    - '// @input float maxNumber = 5 {"hint":"How many numbered boxes to spawn (1..pool size)."}'
-    - '// @input float tileSizeMeters = 0.3 {"hint":"Tile size in meters (edge length of each numbered box)."}'
+    - '// @input float plateCount = 9 {"hint":"Total plates to place on the board (1..pool size)."}'
+    - '// @input float sequenceLength = 5 {"hint":"How many plates form the sequence the user must recall (<= Plate Count)."}'
+    - '// @input float observeDelaySeconds = 4 {"hint":"Seconds to wait after placement (observe the board) before the sequence is shown."}'
+    - '// @input float repeatObserveDelaySeconds = 10 {"hint":"Seconds to step back / observe before a REPEAT test (after finishing and leaving the board)."}'
+    - '// @input float highlightSeconds = 2 {"hint":"Seconds each plate stays highlighted (orange) while the sequence is demonstrated."}'
+    - '// @input float tileSizeMeters = 0.3 {"hint":"Tile size in meters (edge length of each plate)."}'
     - '// @input float reachRadiusMeters = 0.4 {"hint":"How close (meters) the player must get to a box to count as reached."}'
     - "// @input float minSpacingMeters = 0.6 {\"hint\":\"Minimum spacing between box centers in meters (so they don't overlap).\"}"
     - '// @input Asset.AudioTrackAsset enterSound {"hint":"Sound played when the user steps into the board (enter)."}'
