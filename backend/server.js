@@ -358,6 +358,12 @@ const server = http.createServer(async (req, res) => {
           .filter((w) => Number.isFinite(w.n) && Number.isFinite(w.x) && Number.isFinite(w.y))
           .sort((a, b) => a.n - b.n)
       : [];
+    // All plates on the board (the sequence in `waypoints` is a subset of these).
+    const plates = Array.isArray(body.plates)
+      ? body.plates
+          .map((p) => ({ x: Number(p.x), y: Number(p.y) }))
+          .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+      : [];
     const session = {
       id,
       label: body.label || null,
@@ -365,6 +371,7 @@ const server = http.createServer(async (req, res) => {
       boardWidth: Number(body.boardWidth) || 2,
       boardHeight: Number(body.boardHeight) || 2,
       maxNumber: Number(body.maxNumber) || waypoints.length,
+      plates,
       waypoints,
       events: [], // [{ n, t, elapsedMs, splitMs }] each time a number is reached
       points: [],

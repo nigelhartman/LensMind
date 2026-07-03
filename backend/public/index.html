@@ -748,6 +748,7 @@
           let minX = -bw / 2, maxX = bw / 2, minY = -bh / 2, maxY = bh / 2;
           if (current) for (const p of current.points) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
           if (current) for (const w of current.waypoints || []) { minX = Math.min(minX, w.x); maxX = Math.max(maxX, w.x); minY = Math.min(minY, w.y); maxY = Math.max(maxY, w.y); }
+          if (current) for (const p of current.plates || []) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
           const pad = 0.6; minX -= pad; maxX += pad; minY -= pad; maxY += pad;
           const worldW = maxX - minX, worldH = maxY - minY;
           view.scale = Math.min(W / worldW, H / worldH);
@@ -779,9 +780,16 @@
         // origin
         ctx.fillStyle = "#cbd5e1"; ctx.beginPath(); ctx.arc(v.sx(0), v.sy(0), 3 * DPR, 0, 7); ctx.fill();
 
-        // waypoints
-        const wps = current.waypoints || [];
+        // all plates on the board (plain markers, no numbers) so we can see where the user goes
         const tilePx = Math.max(18 * DPR, 0.32 * v.scale), pulse = 0.5 + 0.5 * Math.sin(Date.now() / 300);
+        for (const p of current.plates || []) {
+          const cx = v.sx(p.x), cy = v.sy(p.y), half = tilePx / 2;
+          ctx.fillStyle = "#94a3b81f"; ctx.fillRect(cx - half, cy - half, tilePx, tilePx);
+          ctx.strokeStyle = "#cbd5e1"; ctx.lineWidth = 1.5 * DPR; ctx.strokeRect(cx - half, cy - half, tilePx, tilePx);
+        }
+
+        // sequence plates (only these are numbered = the order the user must walk)
+        const wps = current.waypoints || [];
         for (const w of wps) {
           const st = waypointState(w.n), col = stateColor(st), cx = v.sx(w.x), cy = v.sy(w.y), half = tilePx / 2;
           if (st === "target") {

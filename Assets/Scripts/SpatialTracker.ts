@@ -27,16 +27,16 @@ const COLOR_TARGET = new vec4(1.0, 0.55, 0.1, 1.0); // next one to run to (orang
 const COLOR_REACHED = new vec4(0.15, 0.85, 0.45, 1.0); // already reached (green)
 
 // Overlay instruction messages
-const MSG_FIRST = "The experience starts\nwhen you step inside the box";
+const MSG_OBSERVE = "Test starts soon\nStep back to observe the whole board";
+const MSG_WATCH = "Memorize the order";
+const MSG_GO = "Step inside and walk\nthe sequence in order";
 const MSG_COMPLETE = "Complete!\nStep out of the box to play again";
-const MSG_REPEAT = "Step inside the box\nto start the test";
-const MSG_STEP_OUT = "Step out of the box first";
 
 interface Waypoint {
   object: SceneObject;
   tileMaterial: Material;
   label: Text;
-  n: number; // 1-based number shown on the box
+  n: number; // sequence order (1-based) if part of the sequence; 0 otherwise
   x: number; // board-local position in meters
   y: number;
 }
@@ -93,11 +93,23 @@ export class SpatialTracker extends BaseScriptComponent {
   bluetoothModule: Bluetooth.BluetoothCentralModule;
 
   @input
-  @hint("How many numbered boxes to spawn (1..pool size).")
-  maxNumber: number = 5;
+  @hint("Total plates to place on the board (1..pool size).")
+  plateCount: number = 9;
 
   @input
-  @hint("Tile size in meters (edge length of each numbered box).")
+  @hint("How many plates form the sequence the user must recall (<= Plate Count).")
+  sequenceLength: number = 5;
+
+  @input
+  @hint("Seconds to wait after placement (observe the board) before the sequence is shown.")
+  observeDelaySeconds: number = 4.0;
+
+  @input
+  @hint("Seconds each plate stays highlighted (orange) while the sequence is demonstrated.")
+  highlightSeconds: number = 2.0;
+
+  @input
+  @hint("Tile size in meters (edge length of each plate).")
   tileSizeMeters: number = 0.3;
 
   @input
@@ -188,15 +200,17 @@ export class SpatialTracker extends BaseScriptComponent {
 
   // Game state
   private pool: Waypoint[] = [];
-  private active: Waypoint[] = []; // the ones spawned this round, ordered 1..N
-  private targetNumber: number = 0; // next number to reach; 0 = none/inactive
-  private gameActive: boolean = false;
+  private plates: Waypoint[] = []; // all plates placed this round
+  private sequence: Waypoint[] = []; // the ordered subset the user must recall
+  private targetIndex: number = 0; // index into sequence of the next plate to reach
 
-  // Run flow: "armed" (waiting to enter), "running", "finished"
+  // Run flow: "observe" -> "highlight" -> "armed" -> "running" -> "finished"
   private state: string = "idle";
   private prevInside: boolean = false;
   private enterTimeSec: number = 0;
   private endElapsedSec: number = 0;
+  private phaseTimer: number = 0; // getTime() deadline for the current observe/highlight step
+  private highlightIndex: number = 0; // which sequence plate is currently highlighted
   private firstRun: boolean = true;
   private audio: AudioComponent = null;
 
@@ -312,25 +326,11 @@ export class SpatialTracker extends BaseScriptComponent {
       tileTf.setLocalScale(new vec3(tileUnits, 3, tileUnits));
       tileTf.setLocalPosition(new vec3(0, GROUND_Y + 1.5, 0));
 
-      // Number label lying flat on top of the box, readable from above.
-      const labelTf = labelObj.getTransform();
-      labelTf.setLocalPosition(new vec3(0, GROUND_Y + 3.5, 0));
-      labelTf.setLocalRotation(quat.fromEulerAngles(-Math.PI / 2, 0, 0));
+      // No number labels on the plates anymore - this is a spatial-memory test.
+      labelObj.enabled = false;
 
       const rmv = tileObj.getComponent("Component.RenderMeshVisual") as RenderMeshVisual;
       const text = labelObj.getComponent("Component.Text") as Text;
-
-      // Big, bold numbers.
-      if (text) {
-        text.size = 480; // 10x the default (48)
-        try {
-          // Fake "bold" with a thick outline in the same fill color.
-          text.outlineSettings.enabled = true;
-          text.outlineSettings.size = 0.5;
-        } catch (e) {
-          // Older API without outlineSettings - size increase alone still applies.
-        }
-      }
 
       // Unique UNLIT material per box so colors are solid and set independently.
       // The default box material is lit + textured, so its color can't be tinted.
@@ -393,15 +393,20 @@ export class SpatialTracker extends BaseScriptComponent {
     }
 
     const inside = this.isInsideBoard();
+    const now = getTime();
 
-    if (this.state === "waitexit") {
-      // Placed while inside: wait for the user to leave, then prompt to enter.
-      if (!inside) {
-        this.state = "armed";
-        this.setOverlay(this.firstRun ? MSG_FIRST : MSG_REPEAT);
+    if (this.state === "observe") {
+      // Wait (observe the whole board), then demonstrate the sequence.
+      if (now >= this.phaseTimer) {
+        this.beginHighlight();
+      }
+    } else if (this.state === "highlight") {
+      // Flash each sequence plate for highlightSeconds, then prompt to enter.
+      if (now >= this.phaseTimer) {
+        this.advanceHighlight();
       }
     } else if (this.state === "armed") {
-      // Timer + trajectory begin the moment the user is inside the board.
+      // Recall phase begins the moment the user steps into the board.
       if (inside) {
         this.onEnter();
       }
@@ -455,29 +460,50 @@ export class SpatialTracker extends BaseScriptComponent {
   }
 
   /**
-   * Prepare a fresh run: spawn a new course, create a backend session, and wait
-   * for the user to step into the board. No sound plays on placement.
+   * Prepare a fresh run: place the plates and pick a random sequence, create a
+   * backend session, then hold in the OBSERVE phase. The test does NOT start when
+   * the user walks in during observe/highlight - only after the sequence is shown.
    */
   private armRun() {
     this.sessionId = null;
     this.timeAccum = this.sendIntervalSeconds; // send the first point promptly
     this.enterTimeSec = 0;
     this.endElapsedSec = 0;
+    this.targetIndex = 0;
     this.spawnCourse();
     this.setTimer(0);
-    if (this.isInsideBoard()) {
-      // Board placed while the user is already standing inside: make them step
-      // out first, then prompt them to step back in (same flow as after finishing).
-      this.state = "waitexit";
-      this.setOverlay(MSG_STEP_OUT);
-    } else {
-      this.state = "armed";
-      this.setOverlay(this.firstRun ? MSG_FIRST : MSG_REPEAT);
-    }
+    this.state = "observe";
+    this.phaseTimer = getTime() + this.observeDelaySeconds;
+    this.setOverlay(MSG_OBSERVE);
     this.createSession();
   }
 
-  /** User stepped into the board: start the timer + trajectory. */
+  /** Observe delay elapsed: start demonstrating the sequence, one plate at a time. */
+  private beginHighlight() {
+    this.state = "highlight";
+    this.highlightIndex = -1;
+    this.setOverlay(MSG_WATCH);
+    this.advanceHighlight();
+  }
+
+  /** Turn the current highlight off and light up the next sequence plate (or finish). */
+  private advanceHighlight() {
+    if (this.highlightIndex >= 0 && this.highlightIndex < this.sequence.length) {
+      this.setTileColor(this.sequence[this.highlightIndex], COLOR_GREY);
+    }
+    this.highlightIndex++;
+    if (this.highlightIndex < this.sequence.length) {
+      this.setTileColor(this.sequence[this.highlightIndex], COLOR_TARGET);
+      this.playReachSound(); // one of the 3 random sounds while highlighting
+      this.phaseTimer = getTime() + this.highlightSeconds;
+    } else {
+      // Sequence fully shown: prompt the user to enter and recall it.
+      this.state = "armed";
+      this.setOverlay(MSG_GO);
+    }
+  }
+
+  /** User stepped into the board: start the timer + trajectory (recall phase). */
   private onEnter() {
     this.state = "running";
     this.enterTimeSec = getTime();
@@ -493,39 +519,55 @@ export class SpatialTracker extends BaseScriptComponent {
   }
 
   private spawnCourse() {
-    // Hide every box first.
+    // Hide every plate first.
     for (const w of this.pool) {
       w.object.enabled = false;
     }
-    this.active = [];
-    this.gameActive = false;
-
+    this.plates = [];
+    this.sequence = [];
     if (!this.pool.length) {
       return;
     }
-    let count = Math.floor(this.maxNumber);
-    if (count < 1) count = 1;
-    if (count > this.pool.length) count = this.pool.length;
 
-    const positions = this.randomPositions(count);
-    for (let i = 0; i < count; i++) {
+    let plateN = Math.floor(this.plateCount);
+    if (plateN < 1) plateN = 1;
+    if (plateN > this.pool.length) plateN = this.pool.length;
+
+    let seqN = Math.floor(this.sequenceLength);
+    if (seqN < 1) seqN = 1;
+    if (seqN > plateN) seqN = plateN;
+
+    // Place all plates (grey, no numbers).
+    const positions = this.randomPositions(plateN);
+    for (let i = 0; i < plateN; i++) {
       const w = this.pool[i];
-      w.n = i + 1;
+      w.n = 0;
       w.x = positions[i].x;
       w.y = positions[i].y;
       w.object.enabled = true;
       w.object
         .getTransform()
         .setLocalPosition(new vec3(w.x * UNITS_PER_METER, GROUND_Y, w.y * UNITS_PER_METER));
-      if (w.label) {
-        w.label.text = w.n.toString();
-      }
-      this.setTileColor(w, i === 0 ? COLOR_TARGET : COLOR_GREY);
-      this.active.push(w);
+      this.setTileColor(w, COLOR_GREY);
+      this.plates.push(w);
     }
-    this.targetNumber = 1;
-    this.gameActive = true;
-    print("[SpatialTracker] Spawned course with " + count + " boxes.");
+
+    // Pick a random ordered sequence of seqN distinct plates (Fisher-Yates).
+    const idx: number[] = [];
+    for (let i = 0; i < plateN; i++) idx.push(i);
+    for (let i = plateN - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = idx[i];
+      idx[i] = idx[j];
+      idx[j] = tmp;
+    }
+    for (let k = 0; k < seqN; k++) {
+      const w = this.plates[idx[k]];
+      w.n = k + 1; // sequence order
+      this.sequence.push(w);
+    }
+    this.targetIndex = 0;
+    print("[SpatialTracker] Placed " + plateN + " plates; sequence length " + seqN + ".");
   }
 
   /**
@@ -573,10 +615,10 @@ export class SpatialTracker extends BaseScriptComponent {
   }
 
   private checkReached() {
-    if (this.targetNumber < 1 || this.targetNumber > this.active.length) {
-      return; // course finished or not active
+    if (this.targetIndex < 0 || this.targetIndex >= this.sequence.length) {
+      return; // finished or not active
     }
-    const target = this.active[this.targetNumber - 1];
+    const target = this.sequence[this.targetIndex];
     const user = this.getUserBoardXY();
     const dist = Math.hypot(user.x - target.x, user.y - target.y);
     if (dist <= this.reachRadiusMeters) {
@@ -585,21 +627,20 @@ export class SpatialTracker extends BaseScriptComponent {
   }
 
   private onReached(w: Waypoint) {
+    // Turn the reached plate green. Do NOT hint the next one (spatial recall).
     this.setTileColor(w, COLOR_REACHED);
     this.reportWaypoint(w.n);
-    this.targetNumber = w.n + 1;
-    if (this.targetNumber <= this.active.length) {
-      this.setTileColor(this.active[this.targetNumber - 1], COLOR_TARGET);
+    this.targetIndex++;
+    if (this.targetIndex < this.sequence.length) {
       this.playReachSound();
-      print("[SpatialTracker] Reached #" + w.n + " -> next: #" + this.targetNumber);
+      print("[SpatialTracker] Reached #" + w.n + " -> next hidden");
     } else {
-      // Final number reached: stop the timer and prompt to repeat.
+      // Final plate reached: stop the timer, play the finish sound, prompt to repeat.
       this.state = "finished";
-      this.gameActive = false;
       this.endElapsedSec = getTime() - this.enterTimeSec;
       this.playSound(this.endSound);
       this.setOverlay(MSG_COMPLETE);
-      print("[SpatialTracker] Course complete! All " + this.active.length + " reached.");
+      print("[SpatialTracker] Sequence complete! " + this.sequence.length + " reached.");
     }
   }
 
@@ -697,14 +738,16 @@ export class SpatialTracker extends BaseScriptComponent {
     }
     this.creatingSession = true;
     try {
-      const wpPayload = this.active.map((w) => ({ n: w.n, x: w.x, y: w.y }));
+      const platesPayload = this.plates.map((p) => ({ x: p.x, y: p.y }));
+      const wpPayload = this.sequence.map((w) => ({ n: w.n, x: w.x, y: w.y }));
       const request = new Request(this.backendUrl + "/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           boardWidth: this.boardWidthMeters,
           boardHeight: this.boardHeightMeters,
-          maxNumber: this.active.length,
+          maxNumber: this.sequence.length,
+          plates: platesPayload,
           waypoints: wpPayload,
         }),
       });
