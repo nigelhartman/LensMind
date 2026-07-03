@@ -109,3 +109,24 @@ Open the project in Lens Studio, set the `SpatialTracker` script's **Backend Url
 ## Medical disclaimer
 
 LensMind is a research prototype and pre-screening / training aid. It is **not** a certified medical device and must not be used as a standalone diagnostic tool. All results require interpretation by a qualified clinician.
+
+---
+
+## Credits & resources
+
+**Sound effects**
+
+- Sound Effect by <a href="https://pixabay.com/users/freesound_community-46691455/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=80237">freesound_community</a> from <a href="https://pixabay.com//?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=80237">Pixabay</a>
+- Sound Effect by <a href="https://pixabay.com/users/freesound_community-46691455/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=82020">freesound_community</a> from <a href="https://pixabay.com//?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=82020">Pixabay</a>
+- Sound Effect by <a href="https://pixabay.com/users/freesound_community-46691455/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=82016">freesound_community</a> from <a href="https://pixabay.com/sound-effects//?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=82016">Pixabay</a>
+- Sound Effect by <a href="https://pixabay.com/users/freesound_community-46691455/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=102819">freesound_community</a> from <a href="https://pixabay.com//?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=102819">Pixabay</a>
+- Sound Effect by <a href="https://pixabay.com/users/u_op8btczor7-55070743/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=508249">u_op8btczor7</a> from <a href="https://pixabay.com//?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=508249">Pixabay</a>
+
+**Icons**
+
+- <a href="https://www.flaticon.com/free-icons/heart" title="heart icons">Heart icons created by Good Ware - Flaticon</a>
+- <a href="https://www.flaticon.com/free-icons/time" title="time icons">Time icons created by Ilham Fitrotul Hayat - Flaticon</a>
+
+**Music**
+
+- Music by <a href="https://pixabay.com/users/mangmaru-1300732/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=322715">MinGyu Jung</a> from <a href="https://pixabay.com/music//?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=322715">Pixabay</a>
