@@ -1,10 +1,5 @@
-<!-- ─────────────────────────────────────────────────────────────
-     TRAILER
-     ▶️  Drop the trailer video / GIF here.
-     e.g.  <p align="center"><video src="..."></video></p>
-     ───────────────────────────────────────────────────────────── -->
 
-<p align="center"><em>🎬 Trailer coming soon</em></p>
+https://github.com/user-attachments/assets/6f108de0-2e51-4190-ac9b-89b4a7720618
 
 <br />
 
