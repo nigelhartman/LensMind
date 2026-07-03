@@ -126,11 +126,6 @@ export class SpatialTracker extends BaseScriptComponent {
 
   @input
   @allowUndefined
-  @hint("Sound played when the user steps into the board (enter).")
-  enterSound: AudioTrackAsset;
-
-  @input
-  @allowUndefined
   @hint("Reach sound option 1 - one of the three plays at random each time a number is reached.")
   reachSound1: AudioTrackAsset;
 
@@ -512,7 +507,6 @@ export class SpatialTracker extends BaseScriptComponent {
     this.state = "running";
     this.enterTimeSec = getTime();
     this.setOverlay("");
-    this.playSound(this.enterSound);
     this.reportStart();
   }
 
